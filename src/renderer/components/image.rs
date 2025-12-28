@@ -72,37 +72,16 @@ fn load_image(src: &str) -> Option<ImageData> {
 
 /// 从网络URL加载图片
 fn load_image_from_url(url: &str) -> Option<ImageData> {
-    println!("🖼️ Loading image from URL: {}", url);
-    
     // 使用 ureq 下载图片
-    let response = match ureq::get(url)
+    let response = ureq::get(url)
         .timeout(std::time::Duration::from_secs(10))
-        .call() {
-            Ok(r) => r,
-            Err(e) => {
-                println!("❌ Failed to fetch image: {}", e);
-                return None;
-            }
-        };
+        .call()
+        .ok()?;
     
     let mut bytes = Vec::new();
-    if let Err(e) = response.into_reader().take(10 * 1024 * 1024).read_to_end(&mut bytes) {
-        println!("❌ Failed to read image data: {}", e);
-        return None;
-    }
+    response.into_reader().take(10 * 1024 * 1024).read_to_end(&mut bytes).ok()?;
     
-    println!("📦 Downloaded {} bytes", bytes.len());
-    
-    match decode_image_bytes(&bytes) {
-        Some(img) => {
-            println!("✅ Image decoded: {}x{}", img.width, img.height);
-            Some(img)
-        }
-        None => {
-            println!("❌ Failed to decode image");
-            None
-        }
-    }
+    decode_image_bytes(&bytes)
 }
 
 /// 从本地文件加载图片
