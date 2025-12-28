@@ -7,6 +7,35 @@
     </view>
   </view>
 
+  <!-- 功能卡片 - 使用 wx:for 循环渲染 -->
+  <view class="section">
+    <view class="section-header">
+      <icon type="success" size="20"></icon>
+      <text class="section-title">功能展示</text>
+    </view>
+    <view class="feature-grid">
+      <view class="feature-card" wx:for="{{features}}" wx:key="id" bindtap="onFeatureTap" data-id="{{item.id}}">
+        <icon type="{{item.icon}}" size="28" color="{{item.color}}"></icon>
+        <text class="feature-name">{{item.name}}</text>
+        <text class="feature-desc">{{item.desc}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 图片展示 -->
+  <view class="section">
+    <view class="section-header">
+      <icon type="info" size="20"></icon>
+      <text class="section-title">图片 Image</text>
+    </view>
+    <view class="image-grid">
+      <view class="image-item" wx:for="{{images}}" wx:key="id">
+        <image class="demo-image" src="{{item.src}}" mode="{{item.mode}}"></image>
+        <text class="image-label">{{item.label}}</text>
+      </view>
+    </view>
+  </view>
+
   <!-- 按钮组件 -->
   <view class="section">
     <view class="section-header">
@@ -14,59 +43,49 @@
       <text class="section-title">按钮 Button</text>
     </view>
     <view class="button-group">
-      <button type="primary" bindtap="onPrimaryTap">主要按钮</button>
-      <button type="default" bindtap="onDefaultTap">默认按钮</button>
-      <button type="warn" bindtap="onWarnTap">警告按钮</button>
+      <button type="primary" bindtap="onNavigateToList">查看表单组件</button>
+      <button type="default" bindtap="onNavigateToDetail">查看更多组件</button>
     </view>
     <view class="button-row">
       <button type="primary" size="mini">迷你</button>
       <button type="default" size="mini">迷你</button>
       <button type="warn" size="mini">迷你</button>
     </view>
-    <view class="button-group">
-      <button type="primary" plain="true">镂空按钮</button>
-      <button type="default" disabled="true">禁用状态</button>
+  </view>
+
+  <!-- 条件渲染展示 -->
+  <view class="section">
+    <view class="section-header">
+      <icon type="waiting" size="20"></icon>
+      <text class="section-title">条件渲染</text>
+    </view>
+    <view class="condition-demo">
+      <view class="switch-row">
+        <text class="switch-label">显示内容</text>
+        <switch checked="{{showContent}}" bindchange="onToggleContent" color="#07C160"></switch>
+      </view>
+      <view class="content-box" wx:if="{{showContent}}">
+        <icon type="success" size="24"></icon>
+        <text class="content-text">这是条件渲染的内容</text>
+      </view>
+      <view class="content-box hidden-box" wx:if="{{!showContent}}">
+        <icon type="info" size="24"></icon>
+        <text class="content-text">内容已隐藏</text>
+      </view>
     </view>
   </view>
 
-  <!-- 图标组件 -->
+  <!-- 列表渲染展示 -->
   <view class="section">
     <view class="section-header">
       <icon type="info" size="20"></icon>
-      <text class="section-title">图标 Icon</text>
+      <text class="section-title">列表渲染 wx:for</text>
     </view>
-    <view class="icon-grid">
-      <view class="icon-item">
-        <icon type="success" size="32"></icon>
-        <text class="icon-label">success</text>
-      </view>
-      <view class="icon-item">
-        <icon type="success_no_circle" size="32"></icon>
-        <text class="icon-label">勾选</text>
-      </view>
-      <view class="icon-item">
-        <icon type="info" size="32"></icon>
-        <text class="icon-label">info</text>
-      </view>
-      <view class="icon-item">
-        <icon type="warn" size="32"></icon>
-        <text class="icon-label">warn</text>
-      </view>
-      <view class="icon-item">
-        <icon type="waiting" size="32"></icon>
-        <text class="icon-label">waiting</text>
-      </view>
-      <view class="icon-item">
-        <icon type="cancel" size="32"></icon>
-        <text class="icon-label">cancel</text>
-      </view>
-      <view class="icon-item">
-        <icon type="download" size="32"></icon>
-        <text class="icon-label">download</text>
-      </view>
-      <view class="icon-item">
-        <icon type="search" size="32"></icon>
-        <text class="icon-label">search</text>
+    <view class="list-demo">
+      <view class="list-item" wx:for="{{todoList}}" wx:key="id">
+        <checkbox checked="{{item.done}}" color="#07C160"></checkbox>
+        <text class="list-text {{item.done ? 'done' : ''}}">{{item.text}}</text>
+        <text class="list-index">{{index + 1}}</text>
       </view>
     </view>
   </view>
@@ -77,21 +96,11 @@
       <icon type="waiting" size="20"></icon>
       <text class="section-title">进度条 Progress</text>
     </view>
-    <view class="progress-item">
-      <text class="progress-label">基础进度</text>
-      <progress percent="30" stroke-width="4"></progress>
-    </view>
-    <view class="progress-item">
-      <text class="progress-label">显示百分比</text>
-      <progress percent="50" show-info="true" activeColor="#07C160"></progress>
-    </view>
-    <view class="progress-item">
-      <text class="progress-label">自定义颜色</text>
-      <progress percent="70" activeColor="#FF6B6B" stroke-width="6"></progress>
-    </view>
-    <view class="progress-item">
-      <text class="progress-label">粗进度条</text>
-      <progress percent="90" activeColor="#4ECDC4" stroke-width="10"></progress>
+    <view class="progress-list">
+      <view class="progress-item" wx:for="{{progressList}}" wx:key="id">
+        <text class="progress-label">{{item.label}}</text>
+        <progress percent="{{item.value}}" activeColor="{{item.color}}" stroke-width="{{item.height}}" show-info="{{item.showInfo}}"></progress>
+      </view>
     </view>
   </view>
 
@@ -102,21 +111,9 @@
       <text class="section-title">开关 Switch</text>
     </view>
     <view class="switch-list">
-      <view class="switch-item">
-        <text class="switch-label">开关样式（开）</text>
-        <switch checked="true" color="#07C160"></switch>
-      </view>
-      <view class="switch-item">
-        <text class="switch-label">开关样式（关）</text>
-        <switch></switch>
-      </view>
-      <view class="switch-item">
-        <text class="switch-label">复选框样式（选中）</text>
-        <switch type="checkbox" checked="true" color="#07C160"></switch>
-      </view>
-      <view class="switch-item">
-        <text class="switch-label">复选框样式（未选）</text>
-        <switch type="checkbox"></switch>
+      <view class="switch-item" wx:for="{{switchList}}" wx:key="id">
+        <text class="switch-label">{{item.label}}</text>
+        <switch checked="{{item.checked}}" type="{{item.type}}" color="{{item.color}}" disabled="{{item.disabled}}"></switch>
       </view>
     </view>
   </view>

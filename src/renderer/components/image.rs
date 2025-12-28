@@ -27,11 +27,11 @@ impl ImageComponent {
         let sf = ctx.scale_factor;
         
         let src = node.get_attr("src").unwrap_or("");
-        let mode = node.get_attr("mode").unwrap_or("scaleToFill");
+        let _mode = node.get_attr("mode").unwrap_or("scaleToFill");
         
-        // 默认图片大小 320x240（微信官方默认）
-        let default_width = 320.0;
-        let default_height = 240.0;
+        // 默认图片大小 150x100（更合理的默认尺寸）
+        let default_width = 150.0;
+        let default_height = 100.0;
         
         if ts.size.width == Dimension::Auto {
             ts.size.width = length(default_width * sf);
@@ -41,7 +41,8 @@ impl ImageComponent {
         }
         
         // 图片占位符背景
-        ns.background_color = Some(Color::from_hex(0xEEEEEE));
+        ns.background_color = Some(Color::from_hex(0xF5F5F5));
+        ns.border_radius = 4.0 * sf;
         
         let tn = ctx.taffy.new_leaf(ts).unwrap();
         
@@ -59,62 +60,78 @@ impl ImageComponent {
     pub fn draw(
         node: &RenderNode, 
         canvas: &mut Canvas, 
-        text_renderer: Option<&TextRenderer>,
+        _text_renderer: Option<&TextRenderer>,
         x: f32, 
         y: f32, 
         w: f32, 
         h: f32, 
-        sf: f32
+        _sf: f32
     ) {
         let style = &node.style;
+        let radius = style.border_radius;
         
         // 绘制背景占位符
-        if let Some(bg) = style.background_color {
-            let paint = Paint::new().with_color(bg).with_style(PaintStyle::Fill);
-            if style.border_radius > 0.0 {
-                let mut path = Path::new();
-                path.add_round_rect(x, y, w, h, style.border_radius);
-                canvas.draw_path(&path, &paint);
-            } else {
-                canvas.draw_rect(&GeoRect::new(x, y, w, h), &paint);
-            }
+        let bg_color = style.background_color.unwrap_or(Color::from_hex(0xF5F5F5));
+        let bg_paint = Paint::new()
+            .with_color(bg_color)
+            .with_style(PaintStyle::Fill)
+            .with_anti_alias(true);
+        
+        if radius > 0.0 {
+            let mut path = Path::new();
+            path.add_round_rect(x, y, w, h, radius);
+            canvas.draw_path(&path, &bg_paint);
+        } else {
+            canvas.draw_rect(&GeoRect::new(x, y, w, h), &bg_paint);
         }
         
-        // 绘制图片图标占位符
-        let icon_size = w.min(h) * 0.3;
+        // 绘制图片图标占位符（山形+太阳）
+        let icon_size = w.min(h) * 0.35;
         let cx = x + w / 2.0;
         let cy = y + h / 2.0;
         
-        // 绘制山形图标
+        let icon_color = Color::from_hex(0xCCCCCC);
         let icon_paint = Paint::new()
-            .with_color(Color::from_hex(0xCCCCCC))
-            .with_style(PaintStyle::Fill);
+            .with_color(icon_color)
+            .with_style(PaintStyle::Fill)
+            .with_anti_alias(true);
         
-        // 山形
+        // 太阳（圆形，使用抗锯齿）
+        let sun_x = cx - icon_size * 0.25;
+        let sun_y = cy - icon_size * 0.3;
+        let sun_r = icon_size * 0.15;
+        canvas.draw_circle(sun_x, sun_y, sun_r, &icon_paint);
+        
+        // 山形（三角形）
         let mut mountain = Path::new();
-        mountain.move_to(cx - icon_size * 0.6, cy + icon_size * 0.3);
-        mountain.line_to(cx - icon_size * 0.2, cy - icon_size * 0.1);
-        mountain.line_to(cx + icon_size * 0.1, cy + icon_size * 0.2);
-        mountain.line_to(cx + icon_size * 0.3, cy - icon_size * 0.3);
-        mountain.line_to(cx + icon_size * 0.6, cy + icon_size * 0.3);
+        // 左边小山
+        mountain.move_to(cx - icon_size * 0.5, cy + icon_size * 0.35);
+        mountain.line_to(cx - icon_size * 0.15, cy - icon_size * 0.05);
+        mountain.line_to(cx + icon_size * 0.1, cy + icon_size * 0.35);
         mountain.close();
         canvas.draw_path(&mountain, &icon_paint);
         
-        // 太阳
-        let mut sun = Path::new();
-        sun.add_circle(cx - icon_size * 0.3, cy - icon_size * 0.25, icon_size * 0.12);
-        canvas.draw_path(&sun, &icon_paint);
+        // 右边大山
+        let mut mountain2 = Path::new();
+        mountain2.move_to(cx - icon_size * 0.1, cy + icon_size * 0.35);
+        mountain2.line_to(cx + icon_size * 0.25, cy - icon_size * 0.25);
+        mountain2.line_to(cx + icon_size * 0.55, cy + icon_size * 0.35);
+        mountain2.close();
+        canvas.draw_path(&mountain2, &icon_paint);
         
         // 绘制边框
         if style.border_width > 0.0 {
             if let Some(bc) = style.border_color {
-                let paint = Paint::new().with_color(bc).with_style(PaintStyle::Stroke);
-                if style.border_radius > 0.0 {
+                let border_paint = Paint::new()
+                    .with_color(bc)
+                    .with_style(PaintStyle::Stroke)
+                    .with_anti_alias(true);
+                if radius > 0.0 {
                     let mut path = Path::new();
-                    path.add_round_rect(x, y, w, h, style.border_radius);
-                    canvas.draw_path(&path, &paint);
+                    path.add_round_rect(x, y, w, h, radius);
+                    canvas.draw_path(&path, &border_paint);
                 } else {
-                    canvas.draw_rect(&GeoRect::new(x, y, w, h), &paint);
+                    canvas.draw_rect(&GeoRect::new(x, y, w, h), &border_paint);
                 }
             }
         }

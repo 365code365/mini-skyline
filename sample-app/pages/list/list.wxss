@@ -5,22 +5,21 @@
 
 /* 页面头部 */
 .page-header {
-  background-color: #FFFFFF;
-  padding: 30rpx;
+  background-color: #667eea;
+  padding: 40rpx 30rpx;
   margin-bottom: 20rpx;
-  border-bottom: 1rpx solid #E5E5E5;
 }
 
 .page-title {
   font-size: 40rpx;
   font-weight: bold;
-  color: #333333;
+  color: #FFFFFF;
   margin-bottom: 8rpx;
 }
 
 .page-desc {
   font-size: 26rpx;
-  color: #999999;
+  color: #FFFFFF;
 }
 
 /* 通用 Section 样式 */
@@ -46,13 +45,13 @@
 
 /* 输入框样式 */
 .input-group {
-  gap: 4rpx;
+  gap: 16rpx;
 }
 
 .input-item {
   flex-direction: row;
   align-items: center;
-  padding: 20rpx 0;
+  padding: 16rpx 0;
   border-bottom: 1rpx solid #F0F0F0;
 }
 
@@ -66,14 +65,14 @@
   flex: 1;
   height: 72rpx;
   padding: 0 20rpx;
-  background-color: #F8F8F8;
-  border-radius: 8rpx;
   font-size: 28rpx;
+  background-color: #F8F9FA;
+  border-radius: 8rpx;
 }
 
 .input-disabled {
   background-color: #F0F0F0;
-  color: #CCCCCC;
+  color: #999999;
 }
 
 /* 复选框样式 */
@@ -85,7 +84,7 @@
   flex-direction: row;
   align-items: center;
   padding: 16rpx 0;
-  gap: 16rpx;
+  gap: 12rpx;
 }
 
 .checkbox-label {
@@ -94,7 +93,7 @@
 }
 
 .checkbox-label.disabled {
-  color: #CCCCCC;
+  color: #999999;
 }
 
 /* 单选框样式 */
@@ -106,7 +105,7 @@
   flex-direction: row;
   align-items: center;
   padding: 16rpx 0;
-  gap: 16rpx;
+  gap: 12rpx;
 }
 
 .radio-label {
@@ -115,34 +114,21 @@
 }
 
 .radio-label.disabled {
-  color: #CCCCCC;
+  color: #999999;
 }
 
 /* 滑块样式 */
 .slider-group {
-  gap: 16rpx;
+  gap: 24rpx;
 }
 
 .slider-item {
-  padding: 16rpx 0;
-}
-
-.slider-header {
-  flex-direction: row;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16rpx;
+  gap: 12rpx;
 }
 
 .slider-label {
   font-size: 28rpx;
   color: #333333;
-}
-
-.slider-value {
-  font-size: 26rpx;
-  color: #07C160;
-  font-weight: bold;
 }
 
 /* 底部间距 */

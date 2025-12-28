@@ -5,15 +5,15 @@
     <text class="page-desc">More Components</text>
   </view>
 
-  <!-- 文本样式展示 -->
+  <!-- 文本组件 -->
   <view class="section">
     <view class="section-header">
       <icon type="info" size="20"></icon>
       <text class="section-title">文本 Text</text>
     </view>
     <view class="text-demo">
-      <text class="text-large">大号标题文字</text>
-      <text class="text-normal">这是一段普通的正文内容，用于展示文本组件的基本显示效果。</text>
+      <text class="text-title">大号标题文字</text>
+      <text class="text-body">这是一段普通的正文内容，用于展示文本组件的基本显示效果。</text>
       <text class="text-small">小号辅助说明文字 - Small Text</text>
       <text class="text-primary">主题色文字 Primary Color</text>
       <text class="text-success">成功状态文字 Success</text>
@@ -29,33 +29,26 @@
       <text class="section-title">状态提示</text>
     </view>
     <view class="status-list">
-      <view class="status-item status-success">
-        <icon type="success" size="24"></icon>
+      <view class="status-card" wx:for="{{statusList}}" wx:key="id" style="background-color: {{item.bgColor}};">
+        <icon type="{{item.icon}}" size="24" color="{{item.color}}"></icon>
         <view class="status-content">
-          <text class="status-title">操作成功</text>
-          <text class="status-desc">您的订单已提交成功</text>
+          <text class="status-title" style="color: {{item.color}};">{{item.title}}</text>
+          <text class="status-desc">{{item.desc}}</text>
         </view>
       </view>
-      <view class="status-item status-info">
-        <icon type="info" size="24"></icon>
-        <view class="status-content">
-          <text class="status-title">温馨提示</text>
-          <text class="status-desc">请在30分钟内完成支付</text>
-        </view>
-      </view>
-      <view class="status-item status-warning">
-        <icon type="warn" size="24"></icon>
-        <view class="status-content">
-          <text class="status-title">注意事项</text>
-          <text class="status-desc">该操作不可撤销，请谨慎操作</text>
-        </view>
-      </view>
-      <view class="status-item status-error">
-        <icon type="cancel" size="24"></icon>
-        <view class="status-content">
-          <text class="status-title">操作失败</text>
-          <text class="status-desc">网络异常，请稍后重试</text>
-        </view>
+    </view>
+  </view>
+
+  <!-- 图标展示 -->
+  <view class="section">
+    <view class="section-header">
+      <icon type="info" size="20"></icon>
+      <text class="section-title">图标 Icon</text>
+    </view>
+    <view class="icon-grid">
+      <view class="icon-item" wx:for="{{iconList}}" wx:key="type">
+        <icon type="{{item.type}}" size="32" color="{{item.color}}"></icon>
+        <text class="icon-label">{{item.label}}</text>
       </view>
     </view>
   </view>
@@ -63,63 +56,35 @@
   <!-- 卡片列表 -->
   <view class="section">
     <view class="section-header">
-      <icon type="download" size="20"></icon>
+      <icon type="waiting" size="20"></icon>
       <text class="section-title">卡片列表</text>
     </view>
     <view class="card-list">
-      <view class="card" bindtap="onCardTap" data-id="1">
-        <view class="card-icon card-icon-blue">
-          <icon type="success" size="28"></icon>
+      <view class="card-item" wx:for="{{cardList}}" wx:key="id" bindtap="onCardTap" data-id="{{item.id}}">
+        <view class="card-icon" style="background-color: {{item.color}};">
+          <icon type="{{item.icon}}" size="24" color="#FFFFFF"></icon>
         </view>
-        <view class="card-body">
-          <text class="card-title">功能模块一</text>
-          <text class="card-desc">这是功能模块的描述信息</text>
+        <view class="card-content">
+          <text class="card-title">{{item.title}}</text>
+          <text class="card-desc">{{item.desc}}</text>
         </view>
-        <view class="card-arrow">
-          <text class="arrow-text">›</text>
-        </view>
-      </view>
-      <view class="card" bindtap="onCardTap" data-id="2">
-        <view class="card-icon card-icon-green">
-          <icon type="info" size="28"></icon>
-        </view>
-        <view class="card-body">
-          <text class="card-title">功能模块二</text>
-          <text class="card-desc">点击查看更多详情</text>
-        </view>
-        <view class="card-arrow">
-          <text class="arrow-text">›</text>
-        </view>
-      </view>
-      <view class="card" bindtap="onCardTap" data-id="3">
-        <view class="card-icon card-icon-orange">
-          <icon type="waiting" size="28"></icon>
-        </view>
-        <view class="card-body">
-          <text class="card-title">功能模块三</text>
-          <text class="card-desc">正在开发中，敬请期待</text>
-        </view>
-        <view class="card-arrow">
-          <text class="arrow-text">›</text>
-        </view>
+        <icon type="success_no_circle" size="20" color="#CCCCCC"></icon>
       </view>
     </view>
   </view>
 
-  <!-- 操作按钮组 -->
+  <!-- 操作按钮 -->
   <view class="section">
     <view class="section-header">
-      <icon type="success_no_circle" size="20"></icon>
-      <text class="section-title">操作区域</text>
+      <icon type="success" size="20"></icon>
+      <text class="section-title">操作按钮</text>
     </view>
-    <view class="action-group">
-      <button type="primary" bindtap="onSubmit">确认提交</button>
-      <button type="default" bindtap="onCancel">取消操作</button>
-    </view>
-    <view class="action-row">
-      <button type="primary" size="mini" plain="true" bindtap="onSave">保存</button>
-      <button type="default" size="mini" plain="true" bindtap="onShare">分享</button>
-      <button type="warn" size="mini" plain="true" bindtap="onDelete">删除</button>
+    <view class="action-buttons">
+      <button type="primary" bindtap="onBackToIndex">返回首页</button>
+      <view class="button-row">
+        <button type="default" size="mini" bindtap="onRefresh">刷新</button>
+        <button type="warn" size="mini" bindtap="onClear">清除</button>
+      </view>
     </view>
   </view>
 

@@ -49,7 +49,7 @@ impl SliderComponent {
         ns.border_color = Some(block_color);
         ns.custom_data = ((value - min) / (max - min)).clamp(0.0, 1.0);
         ns.border_width = block_size;
-        ns.font_size = value; // 存储当前值用于显示
+        ns.font_size = value;
         
         let text = if show_value { format!("{}", value as i32) } else { String::new() };
         
@@ -81,26 +81,26 @@ impl SliderComponent {
         let block_size = style.border_width * sf;
         let show_value = !node.text.is_empty();
         
-        // 计算轨道区域
-        let value_width = if show_value { 40.0 * sf } else { 0.0 };
+        // 计算轨道区域 - 预留更多空间给数值显示
+        let value_width = if show_value { 50.0 * sf } else { 0.0 };
         let track_width = w - value_width - block_size;
         let track_height = 4.0 * sf;
         let track_x = x + block_size / 2.0;
         let track_y = y + (h - track_height) / 2.0;
         
-        // 绘制背景轨道
+        // 绘制背景轨道 - 使用抗锯齿
         if let Some(bg) = style.background_color {
-            let paint = Paint::new().with_color(bg).with_style(PaintStyle::Fill);
+            let paint = Paint::new().with_color(bg).with_style(PaintStyle::Fill).with_anti_alias(true);
             let mut path = Path::new();
             path.add_round_rect(track_x, track_y, track_width, track_height, track_height / 2.0);
             canvas.draw_path(&path, &paint);
         }
         
-        // 绘制已选择部分
+        // 绘制已选择部分 - 使用抗锯齿
         let active_width = track_width * progress;
         if active_width > 0.0 {
             if let Some(active) = style.text_color {
-                let paint = Paint::new().with_color(active).with_style(PaintStyle::Fill);
+                let paint = Paint::new().with_color(active).with_style(PaintStyle::Fill).with_anti_alias(true);
                 let mut path = Path::new();
                 path.add_round_rect(track_x, track_y, active_width, track_height, track_height / 2.0);
                 canvas.draw_path(&path, &paint);
@@ -112,35 +112,37 @@ impl SliderComponent {
         let knob_y = y + h / 2.0;
         let knob_radius = block_size / 2.0;
         
-        // 滑块阴影
+        // 滑块阴影 - 使用抗锯齿
         let shadow_paint = Paint::new()
             .with_color(Color::new(0, 0, 0, 40))
-            .with_style(PaintStyle::Fill);
-        let mut shadow = Path::new();
-        shadow.add_circle(knob_x, knob_y + 2.0 * sf, knob_radius);
-        canvas.draw_path(&shadow, &shadow_paint);
+            .with_style(PaintStyle::Fill)
+            .with_anti_alias(true);
+        canvas.draw_circle(knob_x, knob_y + 2.0 * sf, knob_radius, &shadow_paint);
         
-        // 滑块本体
+        // 滑块本体 - 使用抗锯齿
         let block_color = style.border_color.unwrap_or(Color::WHITE);
-        let knob_paint = Paint::new().with_color(block_color).with_style(PaintStyle::Fill);
-        let mut knob = Path::new();
-        knob.add_circle(knob_x, knob_y, knob_radius);
-        canvas.draw_path(&knob, &knob_paint);
+        let knob_paint = Paint::new().with_color(block_color).with_style(PaintStyle::Fill).with_anti_alias(true);
+        canvas.draw_circle(knob_x, knob_y, knob_radius, &knob_paint);
         
-        // 滑块边框
+        // 滑块边框 - 使用填充方式绘制圆环
+        let border_width = 1.0 * sf;
         let border_paint = Paint::new()
             .with_color(Color::from_hex(0xE9E9E9))
-            .with_style(PaintStyle::Stroke);
-        let mut border = Path::new();
-        border.add_circle(knob_x, knob_y, knob_radius);
-        canvas.draw_path(&border, &border_paint);
+            .with_style(PaintStyle::Fill)
+            .with_anti_alias(true);
+        canvas.draw_circle(knob_x, knob_y, knob_radius, &border_paint);
+        
+        let inner_paint = Paint::new().with_color(block_color).with_style(PaintStyle::Fill).with_anti_alias(true);
+        canvas.draw_circle(knob_x, knob_y, knob_radius - border_width, &inner_paint);
         
         // 绘制数值
         if show_value {
             if let Some(tr) = text_renderer {
                 let font_size = 14.0 * sf;
-                let text_x = x + w - value_width + 8.0 * sf;
-                let text_y = y + (h + font_size) / 2.0;
+                let text_width = tr.measure_text(&node.text, font_size);
+                // 右对齐数值，确保不超出容器
+                let text_x = x + w - text_width - 4.0 * sf;
+                let text_y = y + (h + font_size) / 2.0 - 2.0 * sf;
                 let paint = Paint::new().with_color(Color::from_hex(0x888888)).with_style(PaintStyle::Fill);
                 tr.draw_text(canvas, &node.text, text_x, text_y, font_size, &paint);
             }

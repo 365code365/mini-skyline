@@ -836,9 +836,17 @@ impl MiniAppWindow {
             if let Some(result) = self.interaction.handle_click(x, actual_y) {
                 self.handle_interaction_result(result.clone());
                 
-                // 如果是按钮点击，还需要检查事件绑定
-                if let InteractionResult::ButtonClick { id: _, bounds: _ } = &result {
+                // 检查事件绑定并调用 JS 处理函数
+                let should_call_js = match &result {
+                    InteractionResult::ButtonClick { .. } => true,
+                    InteractionResult::Toggle { .. } => true,  // switch/checkbox 的 bindchange
+                    InteractionResult::Select { .. } => true,  // radio 的 bindchange
+                    _ => false,
+                };
+                
+                if should_call_js {
                     if let Some(renderer) = &self.renderer {
+                        println!("   Looking for event at ({:.1}, {:.1}), total bindings: {}", x, actual_y, renderer.event_count());
                         if let Some(binding) = renderer.hit_test(x, actual_y) {
                             println!("👆 {} -> {}", binding.event_type, binding.handler);
                             let data_json = serde_json::to_string(&binding.data).unwrap_or("{}".to_string());
@@ -846,6 +854,10 @@ impl MiniAppWindow {
                             self.app.eval(&call_code).ok();
                             self.check_navigation();
                             self.print_js_output();
+                        } else {
+                            println!("⚠️ No event binding found at ({:.1}, {:.1})", x, actual_y);
+                            // 打印所有事件绑定用于调试
+                            renderer.debug_events();
                         }
                     }
                 }
@@ -874,6 +886,10 @@ impl MiniAppWindow {
         match result {
             InteractionResult::Toggle { id, checked } => {
                 println!("🔘 Toggle {}: {}", id, checked);
+                // 打印当前事件绑定数量
+                if let Some(renderer) = &self.renderer {
+                    println!("   Event bindings count: {}", renderer.event_count());
+                }
             }
             InteractionResult::Select { id, value } => {
                 println!("🔘 Select {}: {}", id, value);
@@ -942,15 +958,13 @@ impl MiniAppWindow {
     fn handle_custom_tabbar_click(&mut self, x: f32, y: f32) {
         if let Some(renderer) = &self.tabbar_renderer {
             if let Some(binding) = renderer.hit_test(x, y) {
-                println!("👆 Custom TabBar {} -> {}", binding.event_type, binding.handler);
-                
                 // 获取点击的 tab 索引和路径
                 if let (Some(index_str), Some(path)) = (binding.data.get("index"), binding.data.get("path")) {
                     if let Ok(index) = index_str.parse::<usize>() {
                         let current_path = self.page_stack.last().map(|p| p.path.clone()).unwrap_or_default();
                         
                         if path != &current_path {
-                            println!("   Switch to tab {}: {}", index, path);
+                            println!("👆 TabBar -> {} ({})", index, path);
                             self.pending_navigation = Some(NavigationRequest::SwitchTab { url: path.clone() });
                             if let Some(w) = &self.window { w.request_redraw(); }
                         }
@@ -988,10 +1002,12 @@ impl MiniAppWindow {
     fn check_navigation(&mut self) {
         // 检查是否有导航请求
         if let Ok(nav_str) = self.app.eval("JSON.stringify(__pendingNavigation || null)") {
+            println!("🔍 Navigation check: {}", nav_str);
             if nav_str != "null" && !nav_str.is_empty() {
                 if let Ok(nav) = serde_json::from_str::<serde_json::Value>(&nav_str) {
                     if let Some(nav_type) = nav.get("type").and_then(|v| v.as_str()) {
                         let url = nav.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                        println!("📍 Navigation request: {} -> {}", nav_type, url);
                         match nav_type {
                             "navigateTo" => {
                                 self.pending_navigation = Some(NavigationRequest::NavigateTo { url: url.to_string() });

@@ -18,14 +18,12 @@ impl TextComponent {
         if text_content.is_empty() { return None; }
         
         let sf = ctx.scale_factor;
-        let font_size = ns.font_size * sf;
-        let line_height = (ns.font_size + 6.0) * sf;
+        let line_height = (ns.font_size * 1.5) * sf;
         
-        // 不设置固定宽度，让父容器决定
         // 设置 flex-shrink 允许收缩
         ts.flex_shrink = 1.0;
         
-        // 估算文本高度（单行）
+        // 设置最小高度为一行
         ts.min_size.height = length(line_height);
         
         let tn = ctx.taffy.new_leaf(ts).unwrap();

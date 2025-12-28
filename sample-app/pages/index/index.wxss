@@ -5,7 +5,6 @@
 
 /* Banner 样式 */
 .banner {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   background-color: #667eea;
   padding: 40rpx 30rpx;
   margin-bottom: 20rpx;
@@ -24,7 +23,7 @@
 
 .banner-subtitle {
   font-size: 28rpx;
-  color: rgba(255, 255, 255, 0.85);
+  color: #FFFFFF;
 }
 
 /* 通用 Section 样式 */
@@ -48,45 +47,143 @@
   color: #333333;
 }
 
-/* 按钮样式 */
-.button-group {
-  margin-bottom: 20rpx;
-}
-
-.button-row {
-  flex-direction: row;
-  gap: 16rpx;
-  margin-bottom: 20rpx;
-}
-
-/* 图标网格 */
-.icon-grid {
+/* 功能卡片网格 */
+.feature-grid {
+  display: flex;
   flex-direction: row;
   flex-wrap: wrap;
-  gap: 20rpx;
+  gap: 16rpx;
 }
 
-.icon-item {
-  width: 140rpx;
+.feature-card {
+  width: 150rpx;
+  background-color: #F8F9FA;
+  border-radius: 12rpx;
+  padding: 20rpx;
   align-items: center;
-  padding: 16rpx 0;
 }
 
-.icon-label {
+.feature-name {
+  font-size: 26rpx;
+  color: #333333;
+  margin-top: 12rpx;
+}
+
+.feature-desc {
+  font-size: 22rpx;
+  color: #999999;
+  margin-top: 4rpx;
+}
+
+/* 图片网格 */
+.image-grid {
+  display: flex;
+  flex-direction: row;
+  gap: 16rpx;
+}
+
+.image-item {
+  flex: 1;
+  align-items: center;
+}
+
+.demo-image {
+  width: 100%;
+  height: 160rpx;
+  border-radius: 8rpx;
+}
+
+.image-label {
   font-size: 22rpx;
   color: #666666;
   margin-top: 8rpx;
 }
 
+/* 按钮样式 */
+.button-group {
+  margin-bottom: 20rpx;
+  gap: 16rpx;
+}
+
+.button-row {
+  flex-direction: row;
+  gap: 16rpx;
+}
+
+/* 条件渲染演示 */
+.condition-demo {
+  gap: 16rpx;
+}
+
+.switch-row {
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16rpx 0;
+}
+
+.content-box {
+  background-color: #E8F5E9;
+  border-radius: 12rpx;
+  padding: 24rpx;
+  flex-direction: row;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.content-box.hidden-box {
+  background-color: #FFF3E0;
+}
+
+.content-text {
+  font-size: 28rpx;
+  color: #333333;
+}
+
+/* 列表演示 */
+.list-demo {
+  gap: 8rpx;
+}
+
+.list-item {
+  flex-direction: row;
+  align-items: center;
+  padding: 16rpx;
+  background-color: #F8F9FA;
+  border-radius: 8rpx;
+  gap: 12rpx;
+}
+
+.list-text {
+  flex: 1;
+  font-size: 28rpx;
+  color: #333333;
+}
+
+.list-text.done {
+  color: #999999;
+}
+
+.list-index {
+  font-size: 24rpx;
+  color: #999999;
+  background-color: #E0E0E0;
+  padding: 4rpx 12rpx;
+  border-radius: 12rpx;
+}
+
 /* 进度条样式 */
+.progress-list {
+  gap: 20rpx;
+}
+
 .progress-item {
-  margin-bottom: 24rpx;
+  gap: 8rpx;
 }
 
 .progress-label {
   font-size: 26rpx;
   color: #666666;
-  margin-bottom: 12rpx;
 }
 
 /* 开关列表 */

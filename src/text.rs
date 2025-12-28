@@ -190,7 +190,7 @@ impl TextRenderer {
             return;
         }
         
-        let line_height = size * 1.4; // 行高
+        let line_height = size * 1.5; // 行高
         let mut current_y = y;
         let mut line_start = 0;
         let chars: Vec<char> = text.chars().collect();
@@ -225,5 +225,35 @@ impl TextRenderer {
             let line: String = chars[line_start..].iter().collect();
             self.draw_text(canvas, &line, x, current_y, size, paint);
         }
+    }
+    
+    /// 计算换行后的文本高度
+    pub fn measure_wrapped_height(&self, text: &str, size: f32, max_width: f32) -> f32 {
+        if max_width <= 0.0 || text.is_empty() {
+            return size * 1.5;
+        }
+        
+        let line_height = size * 1.5;
+        let mut line_count = 1;
+        let mut current_width = 0.0;
+        
+        for ch in text.chars() {
+            let font = if Self::is_emoji(ch) {
+                self.emoji_font.as_ref().unwrap_or(&self.main_font)
+            } else {
+                &self.main_font
+            };
+            let metrics = font.metrics(ch, size);
+            let char_width = metrics.advance_width;
+            
+            if current_width + char_width > max_width && current_width > 0.0 {
+                line_count += 1;
+                current_width = char_width;
+            } else {
+                current_width += char_width;
+            }
+        }
+        
+        line_count as f32 * line_height
     }
 }

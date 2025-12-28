@@ -268,7 +268,7 @@ impl Canvas {
         }
     }
 
-    /// 填充路径（扫描线算法）
+    /// 填充路径（扫描线算法，支持抗锯齿）
     fn fill_path(&mut self, contours: &[Vec<Point>], paint: &Paint) {
         if contours.is_empty() { return; }
 
@@ -282,35 +282,122 @@ impl Canvas {
             }
         }
 
-        let y0 = min_y.floor() as i32;
-        let y1 = max_y.ceil() as i32;
+        let y0 = (min_y - 1.0).floor() as i32;
+        let y1 = (max_y + 1.0).ceil() as i32;
 
-        // 扫描线填充
-        for y in y0..=y1 {
-            let mut intersections = Vec::new();
-            let scan_y = y as f32 + 0.5;
+        if paint.anti_alias {
+            // 抗锯齿填充 - 使用边缘覆盖率计算
+            for y in y0..=y1 {
+                // 收集多个子扫描线的交点
+                let sub_samples = 4;
+                let mut all_intersections: Vec<Vec<f32>> = Vec::new();
+                
+                for sub in 0..sub_samples {
+                    let scan_y = y as f32 + (sub as f32 + 0.5) / sub_samples as f32;
+                    let mut intersections = Vec::new();
+                    
+                    for contour in contours {
+                        for i in 0..contour.len() {
+                            let p0 = &contour[i];
+                            let p1 = &contour[(i + 1) % contour.len()];
 
-            for contour in contours {
-                for i in 0..contour.len() {
-                    let p0 = &contour[i];
-                    let p1 = &contour[(i + 1) % contour.len()];
-
-                    if (p0.y <= scan_y && p1.y > scan_y) || (p1.y <= scan_y && p0.y > scan_y) {
-                        let t = (scan_y - p0.y) / (p1.y - p0.y);
-                        let x = p0.x + t * (p1.x - p0.x);
-                        intersections.push(x);
+                            if (p0.y <= scan_y && p1.y > scan_y) || (p1.y <= scan_y && p0.y > scan_y) {
+                                let t = (scan_y - p0.y) / (p1.y - p0.y);
+                                let x = p0.x + t * (p1.x - p0.x);
+                                intersections.push(x);
+                            }
+                        }
+                    }
+                    
+                    intersections.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                    all_intersections.push(intersections);
+                }
+                
+                // 找出所有交点的 x 范围
+                let mut x_min = f32::MAX;
+                let mut x_max = f32::MIN;
+                for intersections in &all_intersections {
+                    for &x in intersections {
+                        x_min = x_min.min(x);
+                        x_max = x_max.max(x);
+                    }
+                }
+                
+                if x_min > x_max { continue; }
+                
+                let x0 = (x_min - 1.0).floor() as i32;
+                let x1 = (x_max + 1.0).ceil() as i32;
+                
+                for x in x0..=x1 {
+                    let px = x as f32;
+                    let mut coverage = 0.0;
+                    
+                    // 计算每个子扫描线的覆盖
+                    for intersections in &all_intersections {
+                        let mut sub_coverage = 0.0;
+                        
+                        for pair in intersections.chunks(2) {
+                            if pair.len() == 2 {
+                                let left = pair[0];
+                                let right = pair[1];
+                                
+                                // 计算这个像素在这个区间的覆盖
+                                let pixel_left = px;
+                                let pixel_right = px + 1.0;
+                                
+                                if pixel_right <= left || pixel_left >= right {
+                                    // 完全在区间外
+                                    continue;
+                                } else if pixel_left >= left && pixel_right <= right {
+                                    // 完全在区间内
+                                    sub_coverage += 1.0;
+                                } else {
+                                    // 部分覆盖
+                                    let overlap_left = pixel_left.max(left);
+                                    let overlap_right = pixel_right.min(right);
+                                    sub_coverage += overlap_right - overlap_left;
+                                }
+                            }
+                        }
+                        
+                        coverage += sub_coverage;
+                    }
+                    
+                    coverage /= sub_samples as f32;
+                    
+                    if coverage > 0.0 {
+                        self.set_pixel_aa(x, y, paint.color, coverage.min(1.0));
                     }
                 }
             }
+        } else {
+            // 非抗锯齿填充
+            for y in y0..=y1 {
+                let mut intersections = Vec::new();
+                let scan_y = y as f32 + 0.5;
 
-            intersections.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                for contour in contours {
+                    for i in 0..contour.len() {
+                        let p0 = &contour[i];
+                        let p1 = &contour[(i + 1) % contour.len()];
 
-            for pair in intersections.chunks(2) {
-                if pair.len() == 2 {
-                    let x0 = pair[0].floor() as i32;
-                    let x1 = pair[1].ceil() as i32;
-                    for x in x0..=x1 {
-                        self.set_pixel(x, y, paint.color);
+                        if (p0.y <= scan_y && p1.y > scan_y) || (p1.y <= scan_y && p0.y > scan_y) {
+                            let t = (scan_y - p0.y) / (p1.y - p0.y);
+                            let x = p0.x + t * (p1.x - p0.x);
+                            intersections.push(x);
+                        }
+                    }
+                }
+
+                intersections.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+                for pair in intersections.chunks(2) {
+                    if pair.len() == 2 {
+                        let x0 = pair[0].floor() as i32;
+                        let x1 = pair[1].ceil() as i32;
+                        for x in x0..=x1 {
+                            self.set_pixel(x, y, paint.color);
+                        }
                     }
                 }
             }

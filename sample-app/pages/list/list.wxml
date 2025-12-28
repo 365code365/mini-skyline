@@ -12,21 +12,13 @@
       <text class="section-title">输入框 Input</text>
     </view>
     <view class="input-group">
-      <view class="input-item">
-        <text class="input-label">用户名</text>
-        <input class="input-field" placeholder="请输入用户名"></input>
-      </view>
-      <view class="input-item">
-        <text class="input-label">密码</text>
-        <input class="input-field" password="true" placeholder="请输入密码"></input>
-      </view>
-      <view class="input-item">
-        <text class="input-label">手机号</text>
-        <input class="input-field" placeholder="请输入手机号" type="number"></input>
-      </view>
-      <view class="input-item">
-        <text class="input-label">禁用</text>
-        <input class="input-field input-disabled" disabled="true" placeholder="禁用状态"></input>
+      <view class="input-item" wx:for="{{inputList}}" wx:key="id">
+        <text class="input-label">{{item.label}}</text>
+        <input class="input-field {{item.disabled ? 'input-disabled' : ''}}" 
+               placeholder="{{item.placeholder}}" 
+               value="{{item.value}}"
+               disabled="{{item.disabled}}"
+               type="{{item.type}}"></input>
       </view>
     </view>
   </view>
@@ -38,21 +30,9 @@
       <text class="section-title">复选框 Checkbox</text>
     </view>
     <view class="checkbox-group">
-      <view class="checkbox-item">
-        <checkbox checked="true" color="#07C160"></checkbox>
-        <text class="checkbox-label">苹果 Apple</text>
-      </view>
-      <view class="checkbox-item">
-        <checkbox checked="true" color="#07C160"></checkbox>
-        <text class="checkbox-label">香蕉 Banana</text>
-      </view>
-      <view class="checkbox-item">
-        <checkbox color="#07C160"></checkbox>
-        <text class="checkbox-label">橙子 Orange</text>
-      </view>
-      <view class="checkbox-item">
-        <checkbox disabled="true"></checkbox>
-        <text class="checkbox-label disabled">葡萄 Grape (禁用)</text>
+      <view class="checkbox-item" wx:for="{{checkboxList}}" wx:key="id" bindtap="onCheckboxTap" data-id="{{item.id}}">
+        <checkbox checked="{{item.checked}}" color="#07C160" disabled="{{item.disabled}}"></checkbox>
+        <text class="checkbox-label {{item.disabled ? 'disabled' : ''}}">{{item.label}}</text>
       </view>
     </view>
   </view>
@@ -64,17 +44,9 @@
       <text class="section-title">单选框 Radio</text>
     </view>
     <view class="radio-group">
-      <view class="radio-item">
-        <radio checked="true" color="#07C160"></radio>
-        <text class="radio-label">男 Male</text>
-      </view>
-      <view class="radio-item">
-        <radio color="#07C160"></radio>
-        <text class="radio-label">女 Female</text>
-      </view>
-      <view class="radio-item">
-        <radio disabled="true"></radio>
-        <text class="radio-label disabled">保密 Secret (禁用)</text>
+      <view class="radio-item" wx:for="{{radioList}}" wx:key="id" bindtap="onRadioTap" data-id="{{item.id}}">
+        <radio checked="{{item.checked}}" color="#07C160" disabled="{{item.disabled}}"></radio>
+        <text class="radio-label {{item.disabled ? 'disabled' : ''}}">{{item.label}}</text>
       </view>
     </view>
   </view>
@@ -86,31 +58,13 @@
       <text class="section-title">滑块 Slider</text>
     </view>
     <view class="slider-group">
-      <view class="slider-item">
-        <view class="slider-header">
-          <text class="slider-label">音量</text>
-          <text class="slider-value">50%</text>
-        </view>
-        <slider value="50" activeColor="#07C160" show-value="false"></slider>
-      </view>
-      <view class="slider-item">
-        <view class="slider-header">
-          <text class="slider-label">亮度</text>
-          <text class="slider-value">70%</text>
-        </view>
-        <slider value="70" activeColor="#FF9500" show-value="false"></slider>
-      </view>
-      <view class="slider-item">
-        <view class="slider-header">
-          <text class="slider-label">进度</text>
-        </view>
-        <slider value="30" activeColor="#007AFF" show-value="true"></slider>
-      </view>
-      <view class="slider-item">
-        <view class="slider-header">
-          <text class="slider-label">自定义滑块</text>
-        </view>
-        <slider value="60" activeColor="#FF6B6B" block-color="#FF6B6B" block-size="24"></slider>
+      <view class="slider-item" wx:for="{{sliderList}}" wx:key="id">
+        <text class="slider-label">{{item.label}}</text>
+        <slider value="{{item.value}}" 
+                activeColor="{{item.color}}" 
+                show-value="{{item.showValue}}"
+                block-size="{{item.blockSize}}"
+                block-color="{{item.blockColor}}"></slider>
       </view>
     </view>
   </view>

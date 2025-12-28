@@ -176,9 +176,15 @@ impl TemplateEngine {
     fn evaluate_condition(expr: &str, data: &JsonValue) -> bool {
         let expr = expr.trim();
         
-        // 否定
+        // 否定 - 处理 !variable 形式
         if expr.starts_with('!') {
-            return !Self::evaluate_condition(&expr[1..], data);
+            let inner = expr[1..].trim();
+            // 如果是变量，先获取值再取反
+            if let Some(value) = Self::get_value(inner, data) {
+                return !Self::is_truthy(value);
+            }
+            // 否则递归处理
+            return !Self::evaluate_condition(inner, data);
         }
         
         // 比较运算

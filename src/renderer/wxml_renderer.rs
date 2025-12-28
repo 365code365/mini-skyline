@@ -663,4 +663,19 @@ impl WxmlRenderer {
     pub fn hit_test(&self, x: f32, y: f32) -> Option<&EventBinding> {
         self.event_bindings.iter().rev().find(|b| b.bounds.contains(&crate::Point::new(x, y)))
     }
+    
+    /// 获取事件绑定数量
+    pub fn event_count(&self) -> usize {
+        self.event_bindings.len()
+    }
+    
+    /// 打印所有事件绑定（调试用）
+    pub fn debug_events(&self) {
+        for (i, binding) in self.event_bindings.iter().enumerate() {
+            println!("   [{}] {} -> {} bounds=({:.1},{:.1},{:.1},{:.1}) data={:?}", 
+                i, binding.event_type, binding.handler,
+                binding.bounds.x, binding.bounds.y, binding.bounds.width, binding.bounds.height,
+                binding.data);
+        }
+    }
 }

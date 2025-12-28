@@ -45,10 +45,9 @@ impl SwitchComponent {
         ns.background_color = Some(bg_color);
         ns.border_radius = if switch_type == "checkbox" { 4.0 * sf } else { height * sf / 2.0 };
         ns.custom_data = if checked { 1.0 } else { 0.0 };
-        ns.border_width = width; // 存储宽度用于绘制
-        ns.font_size = height; // 存储高度用于绘制
+        ns.border_width = width;
+        ns.font_size = height;
         
-        // 存储类型
         let text = switch_type.to_string();
         
         let tn = ctx.taffy.new_leaf(ts).unwrap();
@@ -77,9 +76,9 @@ impl SwitchComponent {
     }
     
     fn draw_switch(canvas: &mut Canvas, style: &NodeStyle, checked: bool, x: f32, y: f32, w: f32, h: f32, sf: f32) {
-        // 绘制背景轨道
+        // 绘制背景轨道 - 使用抗锯齿
         if let Some(bg) = style.background_color {
-            let paint = Paint::new().with_color(bg).with_style(PaintStyle::Fill);
+            let paint = Paint::new().with_color(bg).with_style(PaintStyle::Fill).with_anti_alias(true);
             let mut path = Path::new();
             path.add_round_rect(x, y, w, h, h / 2.0);
             canvas.draw_path(&path, &paint);
@@ -94,25 +93,22 @@ impl SwitchComponent {
             x + knob_radius + 2.0 * sf
         };
         
-        // 滑块阴影
+        // 滑块阴影 - 使用抗锯齿
         let shadow_paint = Paint::new()
             .with_color(Color::new(0, 0, 0, 30))
-            .with_style(PaintStyle::Fill);
-        let mut shadow = Path::new();
-        shadow.add_circle(knob_x, knob_y + 1.0 * sf, knob_radius);
-        canvas.draw_path(&shadow, &shadow_paint);
+            .with_style(PaintStyle::Fill)
+            .with_anti_alias(true);
+        canvas.draw_circle(knob_x, knob_y + 1.0 * sf, knob_radius, &shadow_paint);
         
-        // 滑块
-        let knob_paint = Paint::new().with_color(Color::WHITE).with_style(PaintStyle::Fill);
-        let mut knob = Path::new();
-        knob.add_circle(knob_x, knob_y, knob_radius);
-        canvas.draw_path(&knob, &knob_paint);
+        // 滑块 - 使用抗锯齿
+        let knob_paint = Paint::new().with_color(Color::WHITE).with_style(PaintStyle::Fill).with_anti_alias(true);
+        canvas.draw_circle(knob_x, knob_y, knob_radius, &knob_paint);
     }
     
-    fn draw_checkbox(canvas: &mut Canvas, style: &NodeStyle, checked: bool, x: f32, y: f32, w: f32, h: f32, sf: f32) {
-        // 绘制背景
+    fn draw_checkbox(canvas: &mut Canvas, style: &NodeStyle, checked: bool, x: f32, y: f32, w: f32, h: f32, _sf: f32) {
+        // 绘制背景 - 使用抗锯齿
         if let Some(bg) = style.background_color {
-            let paint = Paint::new().with_color(bg).with_style(PaintStyle::Fill);
+            let paint = Paint::new().with_color(bg).with_style(PaintStyle::Fill).with_anti_alias(true);
             let mut path = Path::new();
             path.add_round_rect(x, y, w, h, style.border_radius);
             canvas.draw_path(&path, &paint);
@@ -120,24 +116,69 @@ impl SwitchComponent {
         
         // 绘制边框
         if !checked {
+            let border_width = 2.0;
             let border_paint = Paint::new()
                 .with_color(Color::from_hex(0xD1D1D1))
-                .with_style(PaintStyle::Stroke);
+                .with_style(PaintStyle::Fill)
+                .with_anti_alias(true);
             let mut border = Path::new();
             border.add_round_rect(x, y, w, h, style.border_radius);
             canvas.draw_path(&border, &border_paint);
+            
+            // 内部白色
+            let inner_paint = Paint::new().with_color(Color::WHITE).with_style(PaintStyle::Fill).with_anti_alias(true);
+            let mut inner = Path::new();
+            inner.add_round_rect(
+                x + border_width, 
+                y + border_width, 
+                w - border_width * 2.0, 
+                h - border_width * 2.0, 
+                (style.border_radius - border_width).max(0.0)
+            );
+            canvas.draw_path(&inner, &inner_paint);
         }
         
-        // 绘制对勾
+        // 绘制对勾 - 使用粗线条
         if checked {
-            let check_paint = Paint::new().with_color(Color::WHITE).with_style(PaintStyle::Stroke);
             let cx = x + w / 2.0;
             let cy = y + h / 2.0;
-            let mut check = Path::new();
-            check.move_to(cx - w * 0.25, cy);
-            check.line_to(cx - w * 0.05, cy + h * 0.2);
-            check.line_to(cx + w * 0.25, cy - h * 0.2);
-            canvas.draw_path(&check, &check_paint);
+            let thickness = w * 0.12;
+            
+            let p1 = (cx - w * 0.25, cy);
+            let p2 = (cx - w * 0.05, cy + h * 0.2);
+            let p3 = (cx + w * 0.25, cy - h * 0.2);
+            
+            let paint = Paint::new().with_color(Color::WHITE).with_style(PaintStyle::Fill).with_anti_alias(true);
+            let half = thickness / 2.0;
+            
+            // 第一段
+            let angle1 = ((p2.1 - p1.1) / (p2.0 - p1.0)).atan();
+            let dx1 = half * angle1.sin();
+            let dy1 = half * angle1.cos();
+            
+            let mut seg1 = Path::new();
+            seg1.move_to(p1.0 - dx1, p1.1 + dy1);
+            seg1.line_to(p1.0 + dx1, p1.1 - dy1);
+            seg1.line_to(p2.0 + dx1, p2.1 - dy1);
+            seg1.line_to(p2.0 - dx1, p2.1 + dy1);
+            seg1.close();
+            canvas.draw_path(&seg1, &paint);
+            
+            // 第二段
+            let angle2 = ((p3.1 - p2.1) / (p3.0 - p2.0)).atan();
+            let dx2 = half * angle2.sin();
+            let dy2 = half * angle2.cos();
+            
+            let mut seg2 = Path::new();
+            seg2.move_to(p2.0 - dx2, p2.1 + dy2);
+            seg2.line_to(p2.0 + dx2, p2.1 - dy2);
+            seg2.line_to(p3.0 + dx2, p3.1 - dy2);
+            seg2.line_to(p3.0 - dx2, p3.1 + dy2);
+            seg2.close();
+            canvas.draw_path(&seg2, &paint);
+            
+            // 拐点圆形
+            canvas.draw_circle(p2.0, p2.1, half, &paint);
         }
     }
 }

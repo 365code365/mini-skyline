@@ -69,39 +69,89 @@ impl CheckboxComponent {
         let checked = style.custom_data > 0.5;
         
         // 计算居中的实际绘制区域
-        let visual_size = style.border_width; // 从 border_width 获取 visual_size
+        let visual_size = style.border_width;
         let draw_x = x + (w - visual_size) / 2.0;
         let draw_y = y + (h - visual_size) / 2.0;
         let draw_w = visual_size;
         let draw_h = visual_size;
         let radius = style.border_radius;
         
-        // 绘制背景
+        // 绘制背景 - 使用抗锯齿
         if let Some(bg) = style.background_color {
-            let paint = Paint::new().with_color(bg).with_style(PaintStyle::Fill);
+            let paint = Paint::new().with_color(bg).with_style(PaintStyle::Fill).with_anti_alias(true);
             let mut path = Path::new();
             path.add_round_rect(draw_x, draw_y, draw_w, draw_h, radius);
             canvas.draw_path(&path, &paint);
         }
         
-        // 绘制边框
-        if let Some(bc) = style.border_color {
-            let paint = Paint::new().with_color(bc).with_style(PaintStyle::Stroke);
-            let mut path = Path::new();
-            path.add_round_rect(draw_x, draw_y, draw_w, draw_h, radius);
-            canvas.draw_path(&path, &paint);
+        // 绘制边框 - 使用抗锯齿
+        if !checked {
+            if let Some(bc) = style.border_color {
+                // 使用填充方式绘制边框以获得更好的抗锯齿效果
+                let border_width = 2.0;
+                let paint = Paint::new().with_color(bc).with_style(PaintStyle::Fill).with_anti_alias(true);
+                
+                // 外框
+                let mut outer = Path::new();
+                outer.add_round_rect(draw_x, draw_y, draw_w, draw_h, radius);
+                canvas.draw_path(&outer, &paint);
+                
+                // 内框（挖空）
+                let inner_paint = Paint::new().with_color(Color::WHITE).with_style(PaintStyle::Fill).with_anti_alias(true);
+                let mut inner = Path::new();
+                inner.add_round_rect(
+                    draw_x + border_width, 
+                    draw_y + border_width, 
+                    draw_w - border_width * 2.0, 
+                    draw_h - border_width * 2.0, 
+                    (radius - border_width).max(0.0)
+                );
+                canvas.draw_path(&inner, &inner_paint);
+            }
         }
         
-        // 绘制对勾
+        // 绘制对勾 - 使用粗线条
         if checked {
-            let check_paint = Paint::new().with_color(Color::WHITE).with_style(PaintStyle::Stroke);
             let cx = draw_x + draw_w / 2.0;
             let cy = draw_y + draw_h / 2.0;
-            let mut check = Path::new();
-            check.move_to(cx - draw_w * 0.28, cy);
-            check.line_to(cx - draw_w * 0.05, cy + draw_h * 0.22);
-            check.line_to(cx + draw_w * 0.28, cy - draw_h * 0.22);
-            canvas.draw_path(&check, &check_paint);
+            let thickness = draw_w * 0.12;
+            
+            // 对勾的三个关键点
+            let p1 = (cx - draw_w * 0.28, cy);
+            let p2 = (cx - draw_w * 0.05, cy + draw_h * 0.22);
+            let p3 = (cx + draw_w * 0.28, cy - draw_h * 0.22);
+            
+            let paint = Paint::new().with_color(Color::WHITE).with_style(PaintStyle::Fill).with_anti_alias(true);
+            let half = thickness / 2.0;
+            
+            // 第一段
+            let angle1 = ((p2.1 - p1.1) / (p2.0 - p1.0)).atan();
+            let dx1 = half * angle1.sin();
+            let dy1 = half * angle1.cos();
+            
+            let mut seg1 = Path::new();
+            seg1.move_to(p1.0 - dx1, p1.1 + dy1);
+            seg1.line_to(p1.0 + dx1, p1.1 - dy1);
+            seg1.line_to(p2.0 + dx1, p2.1 - dy1);
+            seg1.line_to(p2.0 - dx1, p2.1 + dy1);
+            seg1.close();
+            canvas.draw_path(&seg1, &paint);
+            
+            // 第二段
+            let angle2 = ((p3.1 - p2.1) / (p3.0 - p2.0)).atan();
+            let dx2 = half * angle2.sin();
+            let dy2 = half * angle2.cos();
+            
+            let mut seg2 = Path::new();
+            seg2.move_to(p2.0 - dx2, p2.1 + dy2);
+            seg2.line_to(p2.0 + dx2, p2.1 - dy2);
+            seg2.line_to(p3.0 + dx2, p3.1 - dy2);
+            seg2.line_to(p3.0 - dx2, p3.1 + dy2);
+            seg2.close();
+            canvas.draw_path(&seg2, &paint);
+            
+            // 拐点圆形
+            canvas.draw_circle(p2.0, p2.1, half, &paint);
         }
     }
 }

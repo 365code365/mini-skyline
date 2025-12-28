@@ -84,13 +84,11 @@ impl IconComponent {
     
     fn draw_success(canvas: &mut Canvas, cx: f32, cy: f32, r: f32, color: Color, with_circle: bool, stroke_width: f32) {
         if with_circle {
-            // 绘制圆形背景
-            let paint = Paint::new().with_color(color).with_style(PaintStyle::Fill);
-            let mut path = Path::new();
-            path.add_circle(cx, cy, r);
-            canvas.draw_path(&path, &paint);
+            // 绘制圆形背景 - 使用抗锯齿
+            let paint = Paint::new().with_color(color).with_style(PaintStyle::Fill).with_anti_alias(true);
+            canvas.draw_circle(cx, cy, r, &paint);
             
-            // 绘制白色对勾 - 使用填充多边形实现粗线条
+            // 绘制白色对勾
             Self::draw_thick_check(canvas, cx, cy, r, Color::WHITE, stroke_width * 1.2);
         } else {
             // 只绘制对勾
@@ -100,7 +98,7 @@ impl IconComponent {
     
     /// 绘制粗对勾（使用填充多边形）
     fn draw_thick_check(canvas: &mut Canvas, cx: f32, cy: f32, r: f32, color: Color, thickness: f32) {
-        let paint = Paint::new().with_color(color).with_style(PaintStyle::Fill);
+        let paint = Paint::new().with_color(color).with_style(PaintStyle::Fill).with_anti_alias(true);
         
         // 对勾的三个关键点
         let p1 = (cx - r * 0.35, cy);           // 左端点
@@ -136,49 +134,40 @@ impl IconComponent {
         canvas.draw_path(&seg2, &paint);
         
         // 绘制拐点圆形，使连接更平滑
-        let mut joint = Path::new();
-        joint.add_circle(p2.0, p2.1, half);
-        canvas.draw_path(&joint, &paint);
+        canvas.draw_circle(p2.0, p2.1, half, &paint);
     }
     
     fn draw_info(canvas: &mut Canvas, cx: f32, cy: f32, r: f32, color: Color, _stroke_width: f32) {
-        let paint = Paint::new().with_color(color).with_style(PaintStyle::Fill);
+        let paint = Paint::new().with_color(color).with_style(PaintStyle::Fill).with_anti_alias(true);
         
         // 绘制圆形背景
-        let mut path = Path::new();
-        path.add_circle(cx, cy, r);
-        canvas.draw_path(&path, &paint);
+        canvas.draw_circle(cx, cy, r, &paint);
         
         // 绘制白色 "i"
-        let white = Paint::new().with_color(Color::WHITE).with_style(PaintStyle::Fill);
+        let white = Paint::new().with_color(Color::WHITE).with_style(PaintStyle::Fill).with_anti_alias(true);
         
-        // 点 - 更大
-        let mut dot = Path::new();
-        dot.add_circle(cx, cy - r * 0.35, r * 0.14);
-        canvas.draw_path(&dot, &white);
+        // 点
+        canvas.draw_circle(cx, cy - r * 0.35, r * 0.14, &white);
         
-        // 竖线 - 圆角矩形效果
+        // 竖线 - 圆角矩形
         let bar_w = r * 0.18;
         let bar_h = r * 0.55;
         let bar_x = cx - bar_w / 2.0;
         let bar_y = cy - r * 0.05;
         
-        // 用圆角矩形
         let mut bar = Path::new();
         bar.add_round_rect(bar_x, bar_y, bar_w, bar_h, bar_w / 2.0);
         canvas.draw_path(&bar, &white);
     }
     
     fn draw_warn(canvas: &mut Canvas, cx: f32, cy: f32, r: f32, color: Color, _stroke_width: f32) {
-        let paint = Paint::new().with_color(color).with_style(PaintStyle::Fill);
+        let paint = Paint::new().with_color(color).with_style(PaintStyle::Fill).with_anti_alias(true);
         
         // 绘制圆形背景
-        let mut path = Path::new();
-        path.add_circle(cx, cy, r);
-        canvas.draw_path(&path, &paint);
+        canvas.draw_circle(cx, cy, r, &paint);
         
         // 绘制白色 "!"
-        let white = Paint::new().with_color(Color::WHITE).with_style(PaintStyle::Fill);
+        let white = Paint::new().with_color(Color::WHITE).with_style(PaintStyle::Fill).with_anti_alias(true);
         
         // 竖线 - 圆角矩形
         let bar_w = r * 0.18;
@@ -190,22 +179,18 @@ impl IconComponent {
         bar.add_round_rect(bar_x, bar_y, bar_w, bar_h, bar_w / 2.0);
         canvas.draw_path(&bar, &white);
         
-        // 点 - 更大
-        let mut dot = Path::new();
-        dot.add_circle(cx, cy + r * 0.38, r * 0.14);
-        canvas.draw_path(&dot, &white);
+        // 点
+        canvas.draw_circle(cx, cy + r * 0.38, r * 0.14, &white);
     }
     
     fn draw_waiting(canvas: &mut Canvas, cx: f32, cy: f32, r: f32, color: Color, stroke_width: f32) {
-        let paint = Paint::new().with_color(color).with_style(PaintStyle::Fill);
+        let paint = Paint::new().with_color(color).with_style(PaintStyle::Fill).with_anti_alias(true);
         
         // 绘制圆形背景
-        let mut path = Path::new();
-        path.add_circle(cx, cy, r);
-        canvas.draw_path(&path, &paint);
+        canvas.draw_circle(cx, cy, r, &paint);
         
-        // 绘制白色时钟指针 - 使用粗线条
-        let white = Paint::new().with_color(Color::WHITE).with_style(PaintStyle::Fill);
+        // 绘制白色时钟指针
+        let white = Paint::new().with_color(Color::WHITE).with_style(PaintStyle::Fill).with_anti_alias(true);
         let line_w = stroke_width * 1.2;
         
         // 垂直指针（12点方向）
@@ -219,26 +204,22 @@ impl IconComponent {
         canvas.draw_path(&h_line, &white);
         
         // 中心圆点
-        let mut center = Path::new();
-        center.add_circle(cx, cy, line_w * 0.8);
-        canvas.draw_path(&center, &white);
+        canvas.draw_circle(cx, cy, line_w * 0.8, &white);
     }
     
     fn draw_cancel(canvas: &mut Canvas, cx: f32, cy: f32, r: f32, color: Color, stroke_width: f32) {
-        let paint = Paint::new().with_color(color).with_style(PaintStyle::Fill);
+        let paint = Paint::new().with_color(color).with_style(PaintStyle::Fill).with_anti_alias(true);
         
         // 绘制圆形背景
-        let mut path = Path::new();
-        path.add_circle(cx, cy, r);
-        canvas.draw_path(&path, &paint);
+        canvas.draw_circle(cx, cy, r, &paint);
         
-        // 绘制白色 X - 使用填充多边形
+        // 绘制白色 X
         Self::draw_thick_x(canvas, cx, cy, r * 0.35, Color::WHITE, stroke_width * 1.3);
     }
     
     /// 绘制粗 X
     fn draw_thick_x(canvas: &mut Canvas, cx: f32, cy: f32, offset: f32, color: Color, thickness: f32) {
-        let paint = Paint::new().with_color(color).with_style(PaintStyle::Fill);
+        let paint = Paint::new().with_color(color).with_style(PaintStyle::Fill).with_anti_alias(true);
         let half = thickness / 2.0;
         
         // 左上到右下
@@ -261,22 +242,17 @@ impl IconComponent {
     }
     
     fn draw_download(canvas: &mut Canvas, cx: f32, cy: f32, r: f32, color: Color, stroke_width: f32) {
-        // 绘制圆形边框 - 更粗
-        let stroke_paint = Paint::new().with_color(color).with_style(PaintStyle::Fill);
+        let stroke_paint = Paint::new().with_color(color).with_style(PaintStyle::Fill).with_anti_alias(true);
         
         // 外圆
-        let mut outer = Path::new();
-        outer.add_circle(cx, cy, r);
-        canvas.draw_path(&outer, &stroke_paint);
+        canvas.draw_circle(cx, cy, r, &stroke_paint);
         
         // 内圆（挖空）
         let inner_r = r - stroke_width * 1.2;
-        let bg_paint = Paint::new().with_color(Color::WHITE).with_style(PaintStyle::Fill);
-        let mut inner = Path::new();
-        inner.add_circle(cx, cy, inner_r);
-        canvas.draw_path(&inner, &bg_paint);
+        let bg_paint = Paint::new().with_color(Color::WHITE).with_style(PaintStyle::Fill).with_anti_alias(true);
+        canvas.draw_circle(cx, cy, inner_r, &bg_paint);
         
-        // 绘制下载箭头 - 使用填充
+        // 绘制下载箭头
         let arrow_w = stroke_width * 1.2;
         
         // 垂直线
@@ -299,7 +275,7 @@ impl IconComponent {
     }
     
     fn draw_search(canvas: &mut Canvas, cx: f32, cy: f32, r: f32, color: Color, stroke_width: f32) {
-        let paint = Paint::new().with_color(color).with_style(PaintStyle::Fill);
+        let paint = Paint::new().with_color(color).with_style(PaintStyle::Fill).with_anti_alias(true);
         
         // 放大镜参数
         let lens_r = r * 0.45;
@@ -308,16 +284,12 @@ impl IconComponent {
         let ring_width = stroke_width * 1.5;
         
         // 绘制放大镜圆环（外圆 - 内圆）
-        let mut outer = Path::new();
-        outer.add_circle(lens_cx, lens_cy, lens_r);
-        canvas.draw_path(&outer, &paint);
+        canvas.draw_circle(lens_cx, lens_cy, lens_r, &paint);
         
-        let bg_paint = Paint::new().with_color(Color::WHITE).with_style(PaintStyle::Fill);
-        let mut inner = Path::new();
-        inner.add_circle(lens_cx, lens_cy, lens_r - ring_width);
-        canvas.draw_path(&inner, &bg_paint);
+        let bg_paint = Paint::new().with_color(Color::WHITE).with_style(PaintStyle::Fill).with_anti_alias(true);
+        canvas.draw_circle(lens_cx, lens_cy, lens_r - ring_width, &bg_paint);
         
-        // 绘制手柄 - 粗矩形
+        // 绘制手柄
         let handle_len = r * 0.45;
         let handle_w = ring_width;
         let angle = std::f32::consts::PI / 4.0; // 45度
@@ -325,7 +297,6 @@ impl IconComponent {
         let start_x = lens_cx + lens_r * 0.7;
         let start_y = lens_cy + lens_r * 0.7;
         
-        // 使用旋转的矩形绘制手柄
         let cos_a = angle.cos();
         let sin_a = angle.sin();
         let half_w = handle_w / 2.0;
@@ -339,12 +310,11 @@ impl IconComponent {
         canvas.draw_path(&handle, &paint);
         
         // 手柄末端圆角
-        let mut end_cap = Path::new();
-        end_cap.add_circle(
+        canvas.draw_circle(
             start_x + handle_len * sin_a, 
             start_y + handle_len * cos_a, 
-            half_w
+            half_w,
+            &paint
         );
-        canvas.draw_path(&end_cap, &paint);
     }
 }
