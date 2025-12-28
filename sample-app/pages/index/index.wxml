@@ -73,25 +73,25 @@
     <view class="action-grid">
       <view class="action-item" bindtap="onAction" data-type="scan">
         <view class="action-icon icon-scan">
-          <text class="icon-text">📷</text>
+          <text class="icon-text">扫</text>
         </view>
         <text class="action-label">扫一扫</text>
       </view>
       <view class="action-item" bindtap="onAction" data-type="pay">
         <view class="action-icon icon-pay">
-          <text class="icon-text">💰</text>
+          <text class="icon-text">付</text>
         </view>
         <text class="action-label">付款</text>
       </view>
       <view class="action-item" bindtap="onAction" data-type="card">
         <view class="action-icon icon-card">
-          <text class="icon-text">🎫</text>
+          <text class="icon-text">卡</text>
         </view>
         <text class="action-label">卡包</text>
       </view>
       <view class="action-item" bindtap="onAction" data-type="more">
         <view class="action-icon icon-more">
-          <text class="icon-text">⚙️</text>
+          <text class="icon-text">设</text>
         </view>
         <text class="action-label">更多</text>
       </view>

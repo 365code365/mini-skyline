@@ -207,13 +207,29 @@
 }
 
 .action-icon {
-  background-color: #f0f0f0;
   border-radius: 12rpx;
   padding: 20rpx;
 }
 
+.icon-scan {
+  background-color: #007AFF;
+}
+
+.icon-pay {
+  background-color: #34C759;
+}
+
+.icon-card {
+  background-color: #FF9500;
+}
+
+.icon-more {
+  background-color: #8E8E93;
+}
+
 .icon-text {
-  font-size: 32rpx;
+  font-size: 28rpx;
+  color: #ffffff;
 }
 
 .action-label {
