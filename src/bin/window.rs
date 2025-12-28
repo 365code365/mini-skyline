@@ -1350,14 +1350,17 @@ impl ApplicationHandler for MiniAppWindow {
                 self.update_scroll();
                 self.process_navigation();
                 
-                if self.needs_redraw {
+                // 检查是否有视频正在播放
+                let has_video = mini_render::renderer::components::has_playing_video();
+                
+                if self.needs_redraw || has_video {
                     self.render();
                     self.needs_redraw = false;
                 }
                 self.present();
                 
-                // 如果有滚动动画，继续请求重绘
-                if self.scroll.is_animating() || self.scroll.is_dragging {
+                // 如果有滚动动画或视频播放，继续请求重绘
+                if self.scroll.is_animating() || self.scroll.is_dragging || has_video {
                     if let Some(window) = &self.window { window.request_redraw(); }
                 }
             }

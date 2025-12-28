@@ -18,6 +18,9 @@ softbuffer = "0.4"
 taffy = "0.4"
 arboard = "3"
 ureq = "2.9"
+mp4 = "0.14"
+openh264 = "0.6"
+rodio = "0.19"
 
 [build-dependencies]
 cbindgen = "0.26"

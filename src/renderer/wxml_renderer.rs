@@ -13,7 +13,7 @@ use super::components::{
     RenderNode, NodeStyle, ComponentContext,
     ViewComponent, TextComponent, ButtonComponent, IconComponent,
     ProgressComponent, SwitchComponent, CheckboxComponent, RadioComponent,
-    SliderComponent, InputComponent, ImageComponent,
+    SliderComponent, InputComponent, ImageComponent, VideoComponent,
     build_base_style,
 };
 
@@ -167,6 +167,7 @@ impl WxmlRenderer {
             "slider" => SliderComponent::build(node, &mut ctx),
             "input" | "textarea" => InputComponent::build(node, &mut ctx),
             "image" => ImageComponent::build(node, &mut ctx),
+            "video" => VideoComponent::build(node, &mut ctx),
             _ => ViewComponent::build(node, &mut ctx),
         };
         
@@ -195,7 +196,7 @@ impl WxmlRenderer {
     fn is_leaf_component(tag: &str) -> bool {
         matches!(tag, 
             "text" | "button" | "icon" | "progress" | "switch" | 
-            "checkbox" | "radio" | "slider" | "input" | "textarea" | "image"
+            "checkbox" | "radio" | "slider" | "input" | "textarea" | "image" | "video"
         )
     }
     
@@ -485,6 +486,7 @@ impl WxmlRenderer {
             "slider" => SliderComponent::draw(node, canvas, self.text_renderer.as_ref(), x, y, w, h, sf),
             "input" | "textarea" => InputComponent::draw(node, canvas, self.text_renderer.as_ref(), x, y, w, h, sf),
             "image" => ImageComponent::draw(node, canvas, self.text_renderer.as_ref(), x, y, w, h, sf),
+            "video" => VideoComponent::draw(node, canvas, self.text_renderer.as_ref(), x, y, w, h, sf),
             _ => ViewComponent::draw(node, canvas, x, y, w, h, sf),
         }
     }

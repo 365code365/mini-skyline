@@ -13,6 +13,7 @@ mod radio;
 mod slider;
 mod input;
 mod image;
+mod video;
 
 pub use base::*;
 pub use view::ViewComponent;
@@ -26,6 +27,8 @@ pub use radio::RadioComponent;
 pub use slider::SliderComponent;
 pub use input::InputComponent;
 pub use image::ImageComponent;
+pub use video::VideoComponent;
+pub use video::has_playing_video;
 
 use crate::parser::wxml::WxmlNode;
 use crate::parser::wxss::StyleSheet;
@@ -71,6 +74,7 @@ impl ComponentRegistry {
             "slider" => SliderComponent::build(node, &mut ctx),
             "input" | "textarea" => InputComponent::build(node, &mut ctx),
             "image" => ImageComponent::build(node, &mut ctx),
+            "video" => VideoComponent::build(node, &mut ctx),
             // 默认作为 view 处理
             _ => ViewComponent::build(node, &mut ctx),
         }

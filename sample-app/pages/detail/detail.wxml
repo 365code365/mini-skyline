@@ -5,6 +5,18 @@
     <text class="page-desc">More Components</text>
   </view>
 
+  <!-- 视频组件 -->
+  <view class="section">
+    <view class="section-header">
+      <icon type="info" size="20"></icon>
+      <text class="section-title">视频 Video</text>
+    </view>
+    <view class="video-demo">
+      <video src="/sample-app/assets/oceans.mp4" autoplay="true" loop="true" controls="true"></video>
+      <text class="video-desc">海洋风景视频</text>
+    </view>
+  </view>
+
   <!-- 文本组件 -->
   <view class="section">
     <view class="section-header">

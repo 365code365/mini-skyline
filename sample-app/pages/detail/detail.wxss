@@ -43,6 +43,23 @@
   color: #333333;
 }
 
+/* 视频演示 */
+.video-demo {
+  align-items: center;
+  gap: 16rpx;
+}
+
+.video-demo video {
+  width: 100%;
+  height: 400rpx;
+  border-radius: 12rpx;
+}
+
+.video-desc {
+  font-size: 24rpx;
+  color: #999999;
+}
+
 /* 文本演示 */
 .text-demo {
   gap: 16rpx;
