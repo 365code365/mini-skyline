@@ -6,7 +6,7 @@ mod color;
 mod geometry;
 mod paint;
 mod path;
-mod text;
+pub mod text;
 
 pub use canvas::Canvas;
 pub use color::Color;

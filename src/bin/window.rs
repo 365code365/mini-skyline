@@ -1,10 +1,12 @@
-//! 带窗口的小程序运行器 - 支持多页面导航
+//! 带窗口的小程序运行器 - 支持多页面导航和原生 TabBar
 
 use mini_render::runtime::MiniApp;
 use mini_render::parser::{WxmlParser, WxssParser};
 use mini_render::renderer::WxmlRenderer;
-use mini_render::{Canvas, Color};
+use mini_render::{Canvas, Color, Paint, PaintStyle};
+use mini_render::text::TextRenderer;
 use serde_json::json;
+use serde::Deserialize;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Instant;
@@ -17,7 +19,63 @@ use winit::window::{Window, WindowAttributes, WindowId};
 const LOGICAL_WIDTH: u32 = 375;
 const LOGICAL_HEIGHT: u32 = 667;
 const CONTENT_HEIGHT: u32 = 1500;
-const TABBAR_HEIGHT: u32 = 60;
+const TABBAR_HEIGHT: u32 = 50;
+
+/// app.json 配置结构
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct AppConfig {
+    pages: Vec<String>,
+    #[serde(default)]
+    window: WindowConfig,
+    #[serde(default)]
+    tab_bar: Option<TabBarConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct WindowConfig {
+    #[serde(default = "default_nav_title")]
+    navigation_bar_title_text: String,
+    #[serde(default = "default_nav_bg")]
+    navigation_bar_background_color: String,
+    #[serde(default)]
+    navigation_bar_text_style: String,
+    #[serde(default = "default_bg")]
+    background_color: String,
+}
+
+fn default_nav_title() -> String { "Mini App".to_string() }
+fn default_nav_bg() -> String { "#000000".to_string() }
+fn default_bg() -> String { "#FFFFFF".to_string() }
+
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct TabBarConfig {
+    #[serde(default = "default_tab_color")]
+    color: String,
+    #[serde(default = "default_tab_selected")]
+    selected_color: String,
+    #[serde(default = "default_tab_bg")]
+    background_color: String,
+    #[serde(default)]
+    list: Vec<TabBarItem>,
+}
+
+fn default_tab_color() -> String { "#999999".to_string() }
+fn default_tab_selected() -> String { "#007AFF".to_string() }
+fn default_tab_bg() -> String { "#FFFFFF".to_string() }
+
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct TabBarItem {
+    page_path: String,
+    text: String,
+    #[serde(default)]
+    icon_path: String,
+    #[serde(default)]
+    selected_icon_path: String,
+}
 
 /// 页面信息
 struct PageInfo {
@@ -32,9 +90,7 @@ struct PageInstance {
     path: String,
     query: HashMap<String, String>,
     wxml_nodes: Vec<mini_render::parser::wxml::WxmlNode>,
-    tabbar_nodes: Vec<mini_render::parser::wxml::WxmlNode>,
     stylesheet: mini_render::parser::wxss::StyleSheet,
-    has_tabbar: bool,
 }
 
 /// 微信小程序风格滚动控制器
@@ -194,12 +250,14 @@ struct MiniAppWindow {
     canvas: Option<Canvas>,
     tabbar_canvas: Option<Canvas>,
     renderer: Option<WxmlRenderer>,
-    tabbar_renderer: Option<WxmlRenderer>,
+    text_renderer: Option<TextRenderer>,
     // 页面栈
     page_stack: Vec<PageInstance>,
     current_page_index: usize,
     // 页面资源
     pages: HashMap<String, PageInfo>,
+    // app.json 配置
+    app_config: AppConfig,
     mouse_pos: (f32, f32),
     needs_redraw: bool,
     scale_factor: f64,
@@ -222,6 +280,19 @@ impl MiniAppWindow {
     fn new() -> Result<Self, String> {
         let mut app = MiniApp::new(LOGICAL_WIDTH, LOGICAL_HEIGHT)?;
         app.init()?;
+        
+        // 加载 app.json 配置
+        let app_json = include_str!("../../sample-app/app.json");
+        let app_config: AppConfig = serde_json::from_str(app_json)
+            .map_err(|e| format!("Failed to parse app.json: {}", e))?;
+        
+        println!("📱 App config loaded");
+        if let Some(ref tab_bar) = app_config.tab_bar {
+            println!("   TabBar: {} items", tab_bar.list.len());
+            for item in &tab_bar.list {
+                println!("     - {} ({})", item.text, item.page_path);
+            }
+        }
         
         // 加载所有页面资源
         let mut pages = HashMap::new();
@@ -250,6 +321,11 @@ impl MiniAppWindow {
             js: include_str!("../../sample-app/pages/detail/detail.js").to_string(),
         });
         
+        // 判断首页是否有 TabBar
+        let has_tabbar = app_config.tab_bar.as_ref()
+            .map(|tb| tb.list.iter().any(|item| item.page_path == "pages/index/index"))
+            .unwrap_or(false);
+        
         let now = Instant::now();
         let mut window = Self {
             window: None,
@@ -258,14 +334,18 @@ impl MiniAppWindow {
             canvas: None,
             tabbar_canvas: None,
             renderer: None,
-            tabbar_renderer: None,
+            text_renderer: None,
             page_stack: Vec::new(),
             current_page_index: 0,
             pages,
+            app_config,
             mouse_pos: (0.0, 0.0),
             needs_redraw: true,
             scale_factor: 1.0,
-            scroll: ScrollController::new(CONTENT_HEIGHT as f32, (LOGICAL_HEIGHT - TABBAR_HEIGHT) as f32),
+            scroll: ScrollController::new(
+                CONTENT_HEIGHT as f32, 
+                (LOGICAL_HEIGHT - if has_tabbar { TABBAR_HEIGHT } else { 0 }) as f32
+            ),
             last_frame: now,
             click_start_pos: (0.0, 0.0),
             click_start_time: now,
@@ -277,6 +357,19 @@ impl MiniAppWindow {
         
         Ok(window)
     }
+    
+    /// 检查当前页面是否在 TabBar 中
+    fn is_tabbar_page(&self, path: &str) -> bool {
+        self.app_config.tab_bar.as_ref()
+            .map(|tb| tb.list.iter().any(|item| item.page_path == path))
+            .unwrap_or(false)
+    }
+    
+    /// 获取当前页面在 TabBar 中的索引
+    fn get_tabbar_index(&self, path: &str) -> Option<usize> {
+        self.app_config.tab_bar.as_ref()
+            .and_then(|tb| tb.list.iter().position(|item| item.page_path == path))
+    }
 
     fn navigate_to(&mut self, path: &str, query: HashMap<String, String>) -> Result<(), String> {
         let path = path.trim_start_matches('/');
@@ -285,11 +378,10 @@ impl MiniAppWindow {
         let page_info = self.pages.get(path)
             .ok_or_else(|| format!("Page not found: {}", path))?;
         
-        // 解析 WXML
+        // 解析 WXML - 移除手动写的 tabbar
         let mut wxml_parser = WxmlParser::new(&page_info.wxml);
         let all_nodes = wxml_parser.parse().map_err(|e| format!("WXML parse error: {}", e))?;
-        let (wxml_nodes, tabbar_nodes) = Self::separate_tabbar(&all_nodes);
-        let has_tabbar = !tabbar_nodes.is_empty();
+        let wxml_nodes = Self::remove_manual_tabbar(&all_nodes);
         
         // 解析 WXSS
         let mut wxss_parser = WxssParser::new(&page_info.wxss);
@@ -309,21 +401,48 @@ impl MiniAppWindow {
             path: path.to_string(),
             query,
             wxml_nodes,
-            tabbar_nodes,
             stylesheet,
-            has_tabbar,
         };
         
         self.page_stack.push(page_instance);
         self.current_page_index = self.page_stack.len() - 1;
+        
+        // 根据是否有原生 TabBar 调整滚动区域
+        let has_tabbar = self.is_tabbar_page(path);
         self.scroll = ScrollController::new(
             CONTENT_HEIGHT as f32, 
             (LOGICAL_HEIGHT - if has_tabbar { TABBAR_HEIGHT } else { 0 }) as f32
         );
         self.needs_redraw = true;
         
-        println!("✅ Page loaded: {} (stack size: {})", path, self.page_stack.len());
+        println!("✅ Page loaded: {} (stack size: {}, tabbar: {})", path, self.page_stack.len(), has_tabbar);
         Ok(())
+    }
+    
+    /// 移除 WXML 中手动写的 tabbar 元素
+    fn remove_manual_tabbar(nodes: &[mini_render::parser::wxml::WxmlNode]) -> Vec<mini_render::parser::wxml::WxmlNode> {
+        use mini_render::parser::wxml::{WxmlNode, WxmlNodeType};
+        
+        fn filter_node(node: &WxmlNode) -> Option<WxmlNode> {
+            if node.node_type != WxmlNodeType::Element {
+                return Some(node.clone());
+            }
+            
+            let class = node.attributes.get("class").map(|s| s.as_str()).unwrap_or("");
+            // 移除 tabbar 和 tabbar-placeholder
+            if class.contains("tabbar") {
+                return None;
+            }
+            
+            let mut new_node = WxmlNode::new_element(&node.tag_name);
+            new_node.attributes = node.attributes.clone();
+            new_node.children = node.children.iter()
+                .filter_map(|c| filter_node(c))
+                .collect();
+            Some(new_node)
+        }
+        
+        nodes.iter().filter_map(|n| filter_node(n)).collect()
     }
     
     fn navigate_back(&mut self) -> Result<(), String> {
@@ -347,7 +466,7 @@ impl MiniAppWindow {
                 self.print_js_output();
             }
             
-            let has_tabbar = page.has_tabbar;
+            let has_tabbar = self.is_tabbar_page(&path);
             self.scroll = ScrollController::new(
                 CONTENT_HEIGHT as f32,
                 (LOGICAL_HEIGHT - if has_tabbar { TABBAR_HEIGHT } else { 0 }) as f32
@@ -377,42 +496,6 @@ impl MiniAppWindow {
             }
         }
     }
-
-    fn separate_tabbar(nodes: &[mini_render::parser::wxml::WxmlNode]) -> (Vec<mini_render::parser::wxml::WxmlNode>, Vec<mini_render::parser::wxml::WxmlNode>) {
-        let mut content_nodes = Vec::new();
-        let mut tabbar_nodes = Vec::new();
-        for node in nodes {
-            let (content, tabbar) = Self::separate_node(node);
-            content_nodes.extend(content);
-            tabbar_nodes.extend(tabbar);
-        }
-        (content_nodes, tabbar_nodes)
-    }
-    
-    fn separate_node(node: &mini_render::parser::wxml::WxmlNode) -> (Vec<mini_render::parser::wxml::WxmlNode>, Vec<mini_render::parser::wxml::WxmlNode>) {
-        use mini_render::parser::wxml::{WxmlNode, WxmlNodeType};
-        if node.node_type != WxmlNodeType::Element {
-            return (vec![node.clone()], vec![]);
-        }
-        let class = node.attributes.get("class").map(|s| s.as_str()).unwrap_or("");
-        if class.contains("tabbar") && !class.contains("tabbar-placeholder") {
-            return (vec![], vec![node.clone()]);
-        }
-        if class.contains("tabbar-placeholder") {
-            return (vec![], vec![]);
-        }
-        let mut new_children = Vec::new();
-        let mut tabbar_nodes = Vec::new();
-        for child in &node.children {
-            let (content, tabbar) = Self::separate_node(child);
-            new_children.extend(content);
-            tabbar_nodes.extend(tabbar);
-        }
-        let mut new_node = WxmlNode::new_element(&node.tag_name);
-        new_node.attributes = node.attributes.clone();
-        new_node.children = new_children;
-        (vec![new_node], tabbar_nodes)
-    }
     
     fn setup_canvas(&mut self, scale_factor: f64) {
         self.scale_factor = scale_factor;
@@ -424,6 +507,11 @@ impl MiniAppWindow {
         
         self.canvas = Some(Canvas::new(physical_width, physical_height));
         self.tabbar_canvas = Some(Canvas::new(physical_width, tabbar_physical_height));
+        
+        // 初始化文本渲染器
+        self.text_renderer = TextRenderer::load_system_font()
+            .or_else(|_| TextRenderer::from_bytes(include_bytes!("../../assets/ArialUnicode.ttf")))
+            .ok();
     }
     
     fn update_renderers(&mut self) {
@@ -432,12 +520,6 @@ impl MiniAppWindow {
                 page.stylesheet.clone(),
                 LOGICAL_WIDTH as f32,
                 CONTENT_HEIGHT as f32,
-                self.scale_factor as f32,
-            ));
-            self.tabbar_renderer = Some(WxmlRenderer::new_with_scale(
-                page.stylesheet.clone(),
-                LOGICAL_WIDTH as f32,
-                TABBAR_HEIGHT as f32,
                 self.scale_factor as f32,
             ));
         }
@@ -455,24 +537,99 @@ impl MiniAppWindow {
             None => return,
         };
         
+        let current_path = page.path.clone();
+        
         // 渲染内容区域
         if let (Some(canvas), Some(renderer)) = (&mut self.canvas, &mut self.renderer) {
             canvas.clear(Color::from_hex(0xF5F5F5));
             renderer.render(canvas, &page.wxml_nodes, &page_data);
         }
         
-        // 渲染 TabBar（如果有）
-        if page.has_tabbar {
-            if let (Some(canvas), Some(renderer)) = (&mut self.tabbar_canvas, &mut self.tabbar_renderer) {
-                canvas.clear(Color::WHITE);
-                renderer.render(canvas, &page.tabbar_nodes, &page_data);
-            }
+        // 渲染原生 TabBar（如果当前页面在 TabBar 中）
+        let has_tabbar = self.is_tabbar_page(&current_path);
+        if has_tabbar {
+            self.render_native_tabbar(&current_path);
+        }
+    }
+    
+    /// 渲染原生 TabBar
+    fn render_native_tabbar(&mut self, current_path: &str) {
+        let tab_bar = match &self.app_config.tab_bar {
+            Some(tb) => tb.clone(),
+            None => return,
+        };
+        
+        let canvas = match &mut self.tabbar_canvas {
+            Some(c) => c,
+            None => return,
+        };
+        
+        let text_renderer: &TextRenderer = match &self.text_renderer {
+            Some(tr) => tr,
+            None => return,
+        };
+        
+        let sf = self.scale_factor as f32;
+        let width = LOGICAL_WIDTH as f32 * sf;
+        let height = TABBAR_HEIGHT as f32 * sf;
+        
+        // 背景色
+        let bg_color = Self::parse_color(&tab_bar.background_color).unwrap_or(Color::WHITE);
+        canvas.clear(bg_color);
+        
+        // 顶部分割线
+        let line_paint = Paint::new().with_color(Color::from_hex(0xE5E5E5)).with_style(PaintStyle::Fill);
+        canvas.draw_rect(&mini_render::Rect::new(0.0, 0.0, width, 1.0 * sf), &line_paint);
+        
+        let normal_color = Self::parse_color(&tab_bar.color).unwrap_or(Color::from_hex(0x999999));
+        let selected_color = Self::parse_color(&tab_bar.selected_color).unwrap_or(Color::from_hex(0x007AFF));
+        
+        let item_count = tab_bar.list.len();
+        if item_count == 0 { return; }
+        
+        let item_width = width / item_count as f32;
+        let icon_size = 24.0 * sf;
+        let label_size = 10.0 * sf;
+        let icon_y = 8.0 * sf;
+        let label_y = icon_y + icon_size + 4.0 * sf;
+        
+        for (i, item) in tab_bar.list.iter().enumerate() {
+            let is_selected = item.page_path == current_path;
+            let color = if is_selected { selected_color } else { normal_color };
+            let x = i as f32 * item_width;
+            
+            // 绘制图标占位符（用文字代替）
+            let icon_text = item.text.chars().next().unwrap_or('?').to_string();
+            let icon_paint = Paint::new().with_color(color).with_style(PaintStyle::Fill);
+            let icon_text_width = text_renderer.measure_text(&icon_text, icon_size);
+            let icon_x = x + (item_width - icon_text_width) / 2.0;
+            text_renderer.draw_text(canvas, &icon_text, icon_x, icon_y + icon_size, icon_size, &icon_paint);
+            
+            // 绘制标签
+            let label_paint = Paint::new().with_color(color).with_style(PaintStyle::Fill);
+            let label_width = text_renderer.measure_text(&item.text, label_size);
+            let label_x = x + (item_width - label_width) / 2.0;
+            text_renderer.draw_text(canvas, &item.text, label_x, label_y + label_size, label_size, &label_paint);
+        }
+    }
+    
+    /// 解析颜色字符串
+    fn parse_color(s: &str) -> Option<Color> {
+        let s = s.trim().trim_start_matches('#');
+        if s.len() == 6 {
+            let r = u8::from_str_radix(&s[0..2], 16).ok()?;
+            let g = u8::from_str_radix(&s[2..4], 16).ok()?;
+            let b = u8::from_str_radix(&s[4..6], 16).ok()?;
+            Some(Color::new(r, g, b, 255))
+        } else {
+            None
         }
     }
     
     fn present(&mut self) {
         let canvas = match &self.canvas { Some(c) => c, None => return };
         let page = match self.page_stack.last() { Some(p) => p, None => return };
+        let has_tabbar = self.is_tabbar_page(&page.path);
         
         if let (Some(window), Some(surface)) = (&self.window, &mut self.surface) {
             let size = window.inner_size();
@@ -485,7 +642,7 @@ impl MiniAppWindow {
                     let canvas_height = canvas.height();
                     let scroll_offset = (self.scroll.get_position() * self.scale_factor as f32) as i32;
                     
-                    let tabbar_physical_height = if page.has_tabbar { (TABBAR_HEIGHT as f64 * self.scale_factor) as u32 } else { 0 };
+                    let tabbar_physical_height = if has_tabbar { (TABBAR_HEIGHT as f64 * self.scale_factor) as u32 } else { 0 };
                     let content_area_height = size.height - tabbar_physical_height;
                     
                     // 渲染内容区域
@@ -503,8 +660,8 @@ impl MiniAppWindow {
                         }
                     }
                     
-                    // 渲染 TabBar
-                    if page.has_tabbar {
+                    // 渲染原生 TabBar
+                    if has_tabbar {
                         if let Some(tabbar_canvas) = &self.tabbar_canvas {
                             let tabbar_data = tabbar_canvas.to_rgba();
                             let tabbar_width = tabbar_canvas.width();
@@ -532,23 +689,12 @@ impl MiniAppWindow {
 
     fn handle_click(&mut self, x: f32, y: f32) {
         let page = match self.page_stack.last() { Some(p) => p, None => return };
-        let tabbar_y = if page.has_tabbar { (LOGICAL_HEIGHT - TABBAR_HEIGHT) as f32 } else { LOGICAL_HEIGHT as f32 };
+        let has_tabbar = self.is_tabbar_page(&page.path);
+        let tabbar_y = if has_tabbar { (LOGICAL_HEIGHT - TABBAR_HEIGHT) as f32 } else { LOGICAL_HEIGHT as f32 };
         
-        if page.has_tabbar && y >= tabbar_y {
-            // TabBar 点击
-            let tabbar_local_y = y - tabbar_y;
-            if let Some(renderer) = &self.tabbar_renderer {
-                if let Some(binding) = renderer.hit_test(x, tabbar_local_y) {
-                    println!("👆 TabBar {} -> {}", binding.event_type, binding.handler);
-                    let data_json = serde_json::to_string(&binding.data).unwrap_or("{}".to_string());
-                    let call_code = format!("__callPageMethod('{}', {})", binding.handler, data_json);
-                    self.app.eval(&call_code).ok();
-                    self.check_navigation();
-                    self.print_js_output();
-                    self.scroll = ScrollController::new(CONTENT_HEIGHT as f32, (LOGICAL_HEIGHT - TABBAR_HEIGHT) as f32);
-                    self.needs_redraw = true;
-                }
-            }
+        if has_tabbar && y >= tabbar_y {
+            // 原生 TabBar 点击
+            self.handle_tabbar_click(x);
         } else {
             // 内容区域点击
             let actual_y = y + self.scroll.get_position();
@@ -562,6 +708,31 @@ impl MiniAppWindow {
                     self.print_js_output();
                     self.needs_redraw = true;
                 }
+            }
+        }
+    }
+    
+    /// 处理原生 TabBar 点击
+    fn handle_tabbar_click(&mut self, x: f32) {
+        let tab_bar = match &self.app_config.tab_bar {
+            Some(tb) => tb,
+            None => return,
+        };
+        
+        let item_count = tab_bar.list.len();
+        if item_count == 0 { return; }
+        
+        let item_width = LOGICAL_WIDTH as f32 / item_count as f32;
+        let clicked_index = (x / item_width) as usize;
+        
+        if clicked_index < item_count {
+            let target_path = tab_bar.list[clicked_index].page_path.clone();
+            let current_path = self.page_stack.last().map(|p| p.path.clone()).unwrap_or_default();
+            
+            if target_path != current_path {
+                println!("👆 TabBar -> {} ({})", tab_bar.list[clicked_index].text, target_path);
+                self.pending_navigation = Some(NavigationRequest::SwitchTab { url: target_path });
+                if let Some(w) = &self.window { w.request_redraw(); }
             }
         }
     }
