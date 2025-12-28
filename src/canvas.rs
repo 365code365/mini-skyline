@@ -449,4 +449,137 @@ impl Canvas {
             self.pixels[idx] = color;
         }
     }
+
+    /// 绘制图片数据（RGBA 格式）
+    /// img_data: RGBA 像素数据
+    /// img_w, img_h: 图片原始尺寸
+    /// x, y, w, h: 目标绘制区域
+    /// mode: 缩放模式 (aspectFit, aspectFill, scaleToFill)
+    pub fn draw_image(
+        &mut self,
+        img_data: &[u8],
+        img_w: u32,
+        img_h: u32,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        mode: &str,
+        radius: f32,
+    ) {
+        if img_data.len() < (img_w * img_h * 4) as usize {
+            return;
+        }
+
+        // 计算缩放和偏移
+        let (scale_x, scale_y, offset_x, offset_y) = match mode {
+            "aspectFit" => {
+                // 保持比例，完整显示，可能有留白
+                let scale = (w / img_w as f32).min(h / img_h as f32);
+                let scaled_w = img_w as f32 * scale;
+                let scaled_h = img_h as f32 * scale;
+                let ox = (w - scaled_w) / 2.0;
+                let oy = (h - scaled_h) / 2.0;
+                (scale, scale, ox, oy)
+            }
+            "aspectFill" => {
+                // 保持比例，填满区域，可能裁剪
+                let scale = (w / img_w as f32).max(h / img_h as f32);
+                let scaled_w = img_w as f32 * scale;
+                let scaled_h = img_h as f32 * scale;
+                let ox = (w - scaled_w) / 2.0;
+                let oy = (h - scaled_h) / 2.0;
+                (scale, scale, ox, oy)
+            }
+            _ => {
+                // scaleToFill: 拉伸填满
+                (w / img_w as f32, h / img_h as f32, 0.0, 0.0)
+            }
+        };
+
+        let dest_x0 = x as i32;
+        let dest_y0 = y as i32;
+        let dest_x1 = (x + w) as i32;
+        let dest_y1 = (y + h) as i32;
+
+        // 圆角裁剪预计算
+        let has_radius = radius > 0.0;
+        let cx = x + w / 2.0;
+        let cy = y + h / 2.0;
+
+        for dest_y in dest_y0..dest_y1 {
+            for dest_x in dest_x0..dest_x1 {
+                // 检查圆角裁剪
+                if has_radius {
+                    let dx = dest_x as f32 - x;
+                    let dy = dest_y as f32 - y;
+                    
+                    // 检查四个角
+                    let in_corner = |corner_x: f32, corner_y: f32| -> bool {
+                        let cdx = dx - corner_x;
+                        let cdy = dy - corner_y;
+                        cdx * cdx + cdy * cdy > radius * radius
+                    };
+                    
+                    // 左上角
+                    if dx < radius && dy < radius && in_corner(radius, radius) {
+                        continue;
+                    }
+                    // 右上角
+                    if dx > w - radius && dy < radius && in_corner(w - radius, radius) {
+                        continue;
+                    }
+                    // 左下角
+                    if dx < radius && dy > h - radius && in_corner(radius, h - radius) {
+                        continue;
+                    }
+                    // 右下角
+                    if dx > w - radius && dy > h - radius && in_corner(w - radius, h - radius) {
+                        continue;
+                    }
+                }
+
+                // 计算源图片坐标
+                let local_x = (dest_x as f32 - x - offset_x) / scale_x;
+                let local_y = (dest_y as f32 - y - offset_y) / scale_y;
+
+                // 边界检查
+                if local_x < 0.0 || local_y < 0.0 || 
+                   local_x >= img_w as f32 || local_y >= img_h as f32 {
+                    continue;
+                }
+
+                // 双线性插值采样
+                let src_x = local_x.floor() as u32;
+                let src_y = local_y.floor() as u32;
+                let fx = local_x - src_x as f32;
+                let fy = local_y - src_y as f32;
+
+                let sample = |sx: u32, sy: u32| -> (f32, f32, f32, f32) {
+                    let sx = sx.min(img_w - 1);
+                    let sy = sy.min(img_h - 1);
+                    let idx = ((sy * img_w + sx) * 4) as usize;
+                    (
+                        img_data[idx] as f32,
+                        img_data[idx + 1] as f32,
+                        img_data[idx + 2] as f32,
+                        img_data[idx + 3] as f32,
+                    )
+                };
+
+                let c00 = sample(src_x, src_y);
+                let c10 = sample(src_x + 1, src_y);
+                let c01 = sample(src_x, src_y + 1);
+                let c11 = sample(src_x + 1, src_y + 1);
+
+                let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t;
+                let r = lerp(lerp(c00.0, c10.0, fx), lerp(c01.0, c11.0, fx), fy) as u8;
+                let g = lerp(lerp(c00.1, c10.1, fx), lerp(c01.1, c11.1, fx), fy) as u8;
+                let b = lerp(lerp(c00.2, c10.2, fx), lerp(c01.2, c11.2, fx), fy) as u8;
+                let a = lerp(lerp(c00.3, c10.3, fx), lerp(c01.3, c11.3, fx), fy) as u8;
+
+                self.set_pixel(dest_x, dest_y, Color::new(r, g, b, a));
+            }
+        }
+    }
 }

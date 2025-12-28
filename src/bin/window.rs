@@ -846,7 +846,6 @@ impl MiniAppWindow {
                 
                 if should_call_js {
                     if let Some(renderer) = &self.renderer {
-                        println!("   Looking for event at ({:.1}, {:.1}), total bindings: {}", x, actual_y, renderer.event_count());
                         if let Some(binding) = renderer.hit_test(x, actual_y) {
                             println!("👆 {} -> {}", binding.event_type, binding.handler);
                             let data_json = serde_json::to_string(&binding.data).unwrap_or("{}".to_string());
@@ -854,10 +853,6 @@ impl MiniAppWindow {
                             self.app.eval(&call_code).ok();
                             self.check_navigation();
                             self.print_js_output();
-                        } else {
-                            println!("⚠️ No event binding found at ({:.1}, {:.1})", x, actual_y);
-                            // 打印所有事件绑定用于调试
-                            renderer.debug_events();
                         }
                     }
                 }
@@ -886,10 +881,6 @@ impl MiniAppWindow {
         match result {
             InteractionResult::Toggle { id, checked } => {
                 println!("🔘 Toggle {}: {}", id, checked);
-                // 打印当前事件绑定数量
-                if let Some(renderer) = &self.renderer {
-                    println!("   Event bindings count: {}", renderer.event_count());
-                }
             }
             InteractionResult::Select { id, value } => {
                 println!("🔘 Select {}: {}", id, value);
@@ -1002,12 +993,10 @@ impl MiniAppWindow {
     fn check_navigation(&mut self) {
         // 检查是否有导航请求
         if let Ok(nav_str) = self.app.eval("JSON.stringify(__pendingNavigation || null)") {
-            println!("🔍 Navigation check: {}", nav_str);
             if nav_str != "null" && !nav_str.is_empty() {
                 if let Ok(nav) = serde_json::from_str::<serde_json::Value>(&nav_str) {
                     if let Some(nav_type) = nav.get("type").and_then(|v| v.as_str()) {
                         let url = nav.get("url").and_then(|v| v.as_str()).unwrap_or("");
-                        println!("📍 Navigation request: {} -> {}", nav_type, url);
                         match nav_type {
                             "navigateTo" => {
                                 self.pending_navigation = Some(NavigationRequest::NavigateTo { url: url.to_string() });
@@ -1254,7 +1243,8 @@ impl ApplicationHandler for MiniAppWindow {
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 self.setup_canvas(scale_factor);
                 self.update_renderers();
-                self.needs_redraw = true;
+                self.render(); // 立即渲染以填充 event_bindings
+                self.needs_redraw = false;
             }
             
             WindowEvent::CursorMoved { position, .. } => {

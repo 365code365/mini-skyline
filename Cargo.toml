@@ -17,6 +17,7 @@ winit = "0.30"
 softbuffer = "0.4"
 taffy = "0.4"
 arboard = "3"
+ureq = "2.9"
 
 [build-dependencies]
 cbindgen = "0.26"

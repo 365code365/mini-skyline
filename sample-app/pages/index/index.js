@@ -13,8 +13,8 @@ Page({
     
     // 图片数据
     images: [
-      { id: 1, src: '/images/demo1.png', mode: 'aspectFit', label: 'aspectFit' },
-      { id: 2, src: '/images/demo2.png', mode: 'aspectFill', label: 'aspectFill' }
+      { id: 1, src: '/assets/img.png', mode: 'aspectFit', label: 'aspectFit' },
+      { id: 2, src: 'https://cdn.pixabay.com/photo/2020/04/13/19/40/sun-5039871_1280.jpg', mode: 'aspectFill', label: 'aspectFill' }
     ],
     
     // 待办列表

@@ -20,6 +20,9 @@ impl MiniAppApi {
     
     /// 初始化所有 API
     pub fn init(&self) -> Result<(), String> {
+        // 初始化 console（必须先初始化，因为其他代码可能使用 console.log）
+        println!("    init_console...");
+        self.init_console().map_err(|e| format!("console: {}", e))?;
         // 只初始化最基本的
         println!("    init_wx_object...");
         self.init_wx_object().map_err(|e| format!("wx: {}", e))?;
@@ -271,7 +274,11 @@ impl MiniAppApi {
                         },
                         detail: eventData || {}
                     };
-                    __currentPage[methodName](event);
+                    try {
+                        __currentPage[methodName](event);
+                    } catch (e) {
+                        __native_print('[Error] ' + methodName + ': ' + e.message);
+                    }
                     return true;
                 }
                 return false;
