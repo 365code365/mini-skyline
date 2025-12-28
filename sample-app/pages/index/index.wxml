@@ -1,329 +1,46 @@
-<view class="page">
-  <!-- 顶部导航栏 -->
-  <view class="navbar">
-    <text class="navbar-title">{{currentTab == 0 ? '首页' : currentTab == 1 ? '发现' : currentTab == 2 ? '消息' : '我的'}}</text>
+<view class="container">
+  <view class="section">
+    <text class="section-title">按钮 Button</text>
+    <button type="primary">主要按钮</button>
+    <button type="default">默认按钮</button>
+    <button type="warn">警告按钮</button>
+    <view class="row">
+      <button type="primary" size="mini">小按钮</button>
+      <button type="default" size="mini">小按钮</button>
+      <button type="warn" size="mini">小按钮</button>
+    </view>
+    <button type="primary" plain="true">镂空主要</button>
+    <button type="default" disabled="true">禁用按钮</button>
   </view>
 
-  <!-- 首页内容 -->
-  <view class="tab-content" wx:if="{{currentTab == 0}}">
-    <!-- 用户信息卡片 -->
-    <view class="user-card">
-      <view class="avatar">
-        <text class="avatar-text">U</text>
-      </view>
-      <view class="user-info">
-        <text class="user-name">用户名</text>
-        <text class="user-desc">欢迎使用小程序引擎</text>
-      </view>
-    </view>
-
-    <!-- 计数器模块 -->
-    <view class="section">
-      <text class="section-title">计数器</text>
-      <view class="counter-card">
-        <text class="counter-value">{{count}}</text>
-        <view class="counter-buttons">
-          <button class="btn btn-danger" bindtap="onDecrement">-</button>
-          <button class="btn btn-default" bindtap="onReset">重置</button>
-          <button class="btn btn-primary" bindtap="onIncrement">+</button>
-        </view>
-      </view>
-    </view>
-
-    <!-- 待办事项 -->
-    <view class="section">
-      <text class="section-title">待办事项 ({{todoCount}})</text>
-      <view class="todo-list">
-        <view class="todo-item" bindtap="onToggleTodo" data-id="1">
-          <view class="todo-checkbox {{todo1Done ? 'checked' : ''}}">
-            <text class="check-mark">{{todo1Done ? '✓' : ''}}</text>
-          </view>
-          <text class="todo-text {{todo1Done ? 'done' : ''}}">学习小程序开发</text>
-        </view>
-        <view class="todo-item" bindtap="onToggleTodo" data-id="2">
-          <view class="todo-checkbox {{todo2Done ? 'checked' : ''}}">
-            <text class="check-mark">{{todo2Done ? '✓' : ''}}</text>
-          </view>
-          <text class="todo-text {{todo2Done ? 'done' : ''}}">完成渲染引擎</text>
-        </view>
-        <view class="todo-item" bindtap="onToggleTodo" data-id="3">
-          <view class="todo-checkbox {{todo3Done ? 'checked' : ''}}">
-            <text class="check-mark">{{todo3Done ? '✓' : ''}}</text>
-          </view>
-          <text class="todo-text {{todo3Done ? 'done' : ''}}">添加交互功能</text>
-        </view>
-      </view>
-    </view>
-
-    <!-- 快捷操作 -->
-    <view class="section">
-      <text class="section-title">快捷操作</text>
-      <view class="action-grid">
-        <view class="action-item" bindtap="onAction" data-type="scan">
-          <view class="action-icon icon-scan">
-            <text class="icon-text">扫</text>
-          </view>
-          <text class="action-label">扫一扫</text>
-        </view>
-        <view class="action-item" bindtap="onAction" data-type="pay">
-          <view class="action-icon icon-pay">
-            <text class="icon-text">付</text>
-          </view>
-          <text class="action-label">付款</text>
-        </view>
-        <view class="action-item" bindtap="onAction" data-type="card">
-          <view class="action-icon icon-card">
-            <text class="icon-text">卡</text>
-          </view>
-          <text class="action-label">卡包</text>
-        </view>
-        <view class="action-item" bindtap="onAction" data-type="more">
-          <view class="action-icon icon-more">
-            <text class="icon-text">设</text>
-          </view>
-          <text class="action-label">更多</text>
-        </view>
-      </view>
-    </view>
-
-    <!-- 页面导航 -->
-    <view class="section">
-      <text class="section-title">页面导航</text>
-      <view class="nav-list">
-        <view class="nav-item" bindtap="onGoList">
-          <view class="nav-icon bg-blue">
-            <text class="icon-text">列</text>
-          </view>
-          <text class="nav-text">列表页 (navigateTo)</text>
-          <text class="nav-arrow">→</text>
-        </view>
-        <view class="nav-item" bindtap="onGoDetail">
-          <view class="nav-icon bg-green">
-            <text class="icon-text">详</text>
-          </view>
-          <text class="nav-text">详情页 (navigateTo)</text>
-          <text class="nav-arrow">→</text>
-        </view>
-      </view>
-    </view>
-  </view>
-  <view class="tab-content" wx:if="{{currentTab == 1}}">
-    <view class="section">
-      <text class="section-title">热门推荐</text>
-      <view class="discover-list">
-        <view class="discover-item">
-          <view class="discover-icon bg-red">
-            <text class="icon-text">热</text>
-          </view>
-          <view class="discover-info">
-            <text class="discover-title">今日热点</text>
-            <text class="discover-desc">查看最新热门内容</text>
-          </view>
-        </view>
-        <view class="discover-item">
-          <view class="discover-icon bg-orange">
-            <text class="icon-text">购</text>
-          </view>
-          <view class="discover-info">
-            <text class="discover-title">购物优惠</text>
-            <text class="discover-desc">限时特价商品</text>
-          </view>
-        </view>
-        <view class="discover-item">
-          <view class="discover-icon bg-blue">
-            <text class="icon-text">游</text>
-          </view>
-          <view class="discover-info">
-            <text class="discover-title">小游戏</text>
-            <text class="discover-desc">休闲娱乐时光</text>
-          </view>
-        </view>
-        <view class="discover-item">
-          <view class="discover-icon bg-green">
-            <text class="icon-text">读</text>
-          </view>
-          <view class="discover-info">
-            <text class="discover-title">阅读</text>
-            <text class="discover-desc">精选文章推荐</text>
-          </view>
-        </view>
-      </view>
-    </view>
-
-    <view class="section">
-      <text class="section-title">附近的人</text>
-      <view class="nearby-list">
-        <view class="nearby-item">
-          <view class="nearby-avatar bg-purple">
-            <text class="avatar-text">A</text>
-          </view>
-          <text class="nearby-name">Alice</text>
-          <text class="nearby-distance">100m</text>
-        </view>
-        <view class="nearby-item">
-          <view class="nearby-avatar bg-blue">
-            <text class="avatar-text">B</text>
-          </view>
-          <text class="nearby-name">Bob</text>
-          <text class="nearby-distance">200m</text>
-        </view>
-        <view class="nearby-item">
-          <view class="nearby-avatar bg-green">
-            <text class="avatar-text">C</text>
-          </view>
-          <text class="nearby-name">Carol</text>
-          <text class="nearby-distance">350m</text>
-        </view>
-      </view>
+  <view class="section">
+    <text class="section-title">图标 Icon</text>
+    <view class="row">
+      <icon type="success" size="30"></icon>
+      <icon type="success_no_circle" size="30"></icon>
+      <icon type="info" size="30"></icon>
+      <icon type="warn" size="30"></icon>
+      <icon type="waiting" size="30"></icon>
+      <icon type="cancel" size="30"></icon>
+      <icon type="download" size="30"></icon>
+      <icon type="search" size="30"></icon>
     </view>
   </view>
 
-  <!-- 消息页内容 -->
-  <view class="tab-content" wx:if="{{currentTab == 2}}">
-    <view class="section">
-      <text class="section-title">最近消息</text>
-      <view class="message-list">
-        <view class="message-item">
-          <view class="message-avatar bg-blue">
-            <text class="avatar-text">张</text>
-          </view>
-          <view class="message-content">
-            <text class="message-name">张三</text>
-            <text class="message-text">今天的会议改到下午3点</text>
-          </view>
-          <text class="message-time">10:30</text>
-        </view>
-        <view class="message-item">
-          <view class="message-avatar bg-green">
-            <text class="avatar-text">李</text>
-          </view>
-          <view class="message-content">
-            <text class="message-name">李四</text>
-            <text class="message-text">项目文档已经发你邮箱了</text>
-          </view>
-          <text class="message-time">09:15</text>
-        </view>
-        <view class="message-item">
-          <view class="message-avatar bg-orange">
-            <text class="avatar-text">王</text>
-          </view>
-          <view class="message-content">
-            <text class="message-name">王五</text>
-            <text class="message-text">周末一起吃饭吗？</text>
-          </view>
-          <text class="message-time">昨天</text>
-        </view>
-        <view class="message-item">
-          <view class="message-avatar bg-purple">
-            <text class="avatar-text">赵</text>
-          </view>
-          <view class="message-content">
-            <text class="message-name">赵六</text>
-            <text class="message-text">代码已经提交到仓库了</text>
-          </view>
-          <text class="message-time">昨天</text>
-        </view>
-        <view class="message-item">
-          <view class="message-avatar bg-red">
-            <text class="avatar-text">系</text>
-          </view>
-          <view class="message-content">
-            <text class="message-name">系统通知</text>
-            <text class="message-text">您的订单已发货</text>
-          </view>
-          <text class="message-time">前天</text>
-        </view>
-      </view>
-    </view>
+  <view class="section">
+    <text class="section-title">进度条 Progress</text>
+    <progress percent="20" stroke-width="3"></progress>
+    <progress percent="50" activeColor="#FF6B6B" show-info="true"></progress>
+    <progress percent="80" activeColor="#4ECDC4" stroke-width="8"></progress>
   </view>
 
-  <!-- 我的页内容 -->
-  <view class="tab-content" wx:if="{{currentTab == 3}}">
-    <view class="profile-header">
-      <view class="profile-avatar">
-        <text class="profile-avatar-text">U</text>
-      </view>
-      <view class="profile-info">
-        <text class="profile-name">用户名</text>
-        <text class="profile-id">ID: 12345678</text>
-      </view>
-    </view>
-
-    <view class="section">
-      <text class="section-title">数据统计</text>
-      <view class="stats-grid">
-        <view class="stat-item">
-          <text class="stat-value">{{count}}</text>
-          <text class="stat-label">计数</text>
-        </view>
-        <view class="stat-item">
-          <text class="stat-value">{{todoCount}}</text>
-          <text class="stat-label">待办</text>
-        </view>
-        <view class="stat-item">
-          <text class="stat-value">7</text>
-          <text class="stat-label">天数</text>
-        </view>
-        <view class="stat-item">
-          <text class="stat-value">99+</text>
-          <text class="stat-label">积分</text>
-        </view>
-      </view>
-    </view>
-
-    <view class="section">
-      <text class="section-title">设置</text>
-      <view class="settings-list">
-        <view class="settings-item">
-          <text class="settings-icon">账</text>
-          <text class="settings-name">账户安全</text>
-          <text class="settings-arrow">></text>
-        </view>
-        <view class="settings-item">
-          <text class="settings-icon">通</text>
-          <text class="settings-name">消息通知</text>
-          <text class="settings-arrow">></text>
-        </view>
-        <view class="settings-item">
-          <text class="settings-icon">隐</text>
-          <text class="settings-name">隐私设置</text>
-          <text class="settings-arrow">></text>
-        </view>
-        <view class="settings-item">
-          <text class="settings-icon">关</text>
-          <text class="settings-name">关于我们</text>
-          <text class="settings-arrow">></text>
-        </view>
-      </view>
-    </view>
-
-    <view class="section">
-      <view class="logout-btn" bindtap="onLogout">
-        <text class="logout-text">退出登录</text>
-      </view>
-    </view>
-  </view>
-
-  <!-- 底部占位，防止内容被 TabBar 遮挡 -->
-  <view class="tabbar-placeholder"></view>
-
-  <!-- 底部 TabBar -->
-  <view class="tabbar">
-    <view class="tabbar-item" bindtap="onSwitchTab" data-tab="0">
-      <text class="{{currentTab == 0 ? 'tabbar-icon-active' : 'tabbar-icon'}}">首</text>
-      <text class="{{currentTab == 0 ? 'tabbar-label-active' : 'tabbar-label'}}">首页</text>
-    </view>
-    <view class="tabbar-item" bindtap="onSwitchTab" data-tab="1">
-      <text class="{{currentTab == 1 ? 'tabbar-icon-active' : 'tabbar-icon'}}">发</text>
-      <text class="{{currentTab == 1 ? 'tabbar-label-active' : 'tabbar-label'}}">发现</text>
-    </view>
-    <view class="tabbar-item" bindtap="onSwitchTab" data-tab="2">
-      <text class="{{currentTab == 2 ? 'tabbar-icon-active' : 'tabbar-icon'}}">消</text>
-      <text class="{{currentTab == 2 ? 'tabbar-label-active' : 'tabbar-label'}}">消息</text>
-    </view>
-    <view class="tabbar-item" bindtap="onSwitchTab" data-tab="3">
-      <text class="{{currentTab == 3 ? 'tabbar-icon-active' : 'tabbar-icon'}}">我</text>
-      <text class="{{currentTab == 3 ? 'tabbar-label-active' : 'tabbar-label'}}">我的</text>
+  <view class="section">
+    <text class="section-title">开关 Switch</text>
+    <view class="row">
+      <switch checked="true"></switch>
+      <switch></switch>
+      <switch type="checkbox" checked="true"></switch>
+      <switch type="checkbox"></switch>
     </view>
   </view>
 </view>

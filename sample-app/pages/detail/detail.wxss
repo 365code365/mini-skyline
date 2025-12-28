@@ -1,167 +1,35 @@
-/* 页面容器 */
-.page {
-  padding: 0;
-  background-color: #f5f5f5;
+.container {
+  padding: 20rpx;
+  background-color: #F5F5F5;
 }
 
-/* 导航栏 */
-.navbar {
-  display: flex;
-  flex-direction: row;
-  gap: 16rpx;
-  background-color: #07C160;
-  padding: 40rpx 30rpx 20rpx;
-}
-
-.nav-back {
-  padding: 0 16rpx;
-}
-
-.back-icon {
-  font-size: 36rpx;
-  color: #ffffff;
-}
-
-.navbar-title {
-  font-size: 36rpx;
-  color: #ffffff;
-}
-
-/* 详情容器 */
-.detail-container {
-  padding: 0;
-}
-
-/* 商品图片 */
-.detail-image {
-  background-color: #ffffff;
-  padding: 40rpx;
-}
-
-.image-placeholder {
-  background-color: #f0f0f0;
-  padding: 120rpx;
+.section {
+  background-color: #FFFFFF;
   border-radius: 12rpx;
-}
-
-.placeholder-text {
-  font-size: 48rpx;
-  color: #999999;
-}
-
-/* 商品信息 */
-.detail-info {
-  display: flex;
-  flex-direction: column;
-  gap: 16rpx;
-  background-color: #ffffff;
-  padding: 30rpx;
-  margin-top: 20rpx;
-}
-
-.detail-title {
-  font-size: 36rpx;
-  color: #333333;
-}
-
-.detail-price {
-  font-size: 48rpx;
-  color: #FF3B30;
-}
-
-.detail-desc {
-  font-size: 26rpx;
-  color: #666666;
-}
-
-/* 详情区块 */
-.detail-section {
-  display: flex;
-  flex-direction: column;
-  gap: 16rpx;
-  background-color: #ffffff;
-  padding: 30rpx;
-  margin-top: 20rpx;
+  padding: 24rpx;
+  margin-bottom: 24rpx;
 }
 
 .section-title {
-  font-size: 28rpx;
+  font-size: 32rpx;
+  font-weight: bold;
   color: #333333;
+  margin-bottom: 24rpx;
 }
 
-/* 参数列表 */
-.param-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12rpx;
-}
-
-.param-item {
-  display: flex;
+.row {
   flex-direction: row;
-  gap: 20rpx;
-  padding: 16rpx 0;
+  align-items: center;
+  gap: 16rpx;
+  margin-top: 16rpx;
 }
 
-.param-label {
-  font-size: 26rpx;
-  color: #999999;
-  width: 120rpx;
-}
-
-.param-value {
-  font-size: 26rpx;
-  color: #333333;
-}
-
-/* 数量选择器 */
-.quantity-selector {
-  display: flex;
-  flex-direction: row;
-  gap: 20rpx;
-}
-
-.qty-btn {
-  background-color: #f0f0f0;
-  padding: 12rpx 24rpx;
+.image-box {
+  width: 200rpx;
+  height: 150rpx;
   border-radius: 8rpx;
 }
 
-.qty-text {
-  font-size: 32rpx;
-  color: #333333;
-}
-
-.qty-value {
-  font-size: 32rpx;
-  color: #333333;
-  padding: 12rpx 24rpx;
-}
-
-/* 底部操作栏 */
-.bottom-bar {
-  display: flex;
-  flex-direction: row;
-  gap: 20rpx;
-  padding: 20rpx 30rpx;
-  background-color: #ffffff;
-  margin-top: 40rpx;
-}
-
-.bar-btn {
-  padding: 24rpx 40rpx;
-  border-radius: 8rpx;
-}
-
-.btn-cart {
-  background-color: #FF9500;
-}
-
-.btn-buy {
-  background-color: #FF3B30;
-}
-
-.bar-btn-text {
-  font-size: 28rpx;
-  color: #ffffff;
+.textarea-box {
+  height: 160rpx;
 }

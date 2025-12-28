@@ -3,6 +3,7 @@
 use mini_render::runtime::MiniApp;
 use mini_render::parser::{WxmlParser, WxssParser};
 use mini_render::renderer::WxmlRenderer;
+use mini_render::ui::interaction::{InteractionManager, InteractionResult, KeyInput};
 use mini_render::{Canvas, Color, Paint, PaintStyle};
 use mini_render::text::TextRenderer;
 use serde_json::json;
@@ -279,6 +280,8 @@ struct MiniAppWindow {
     click_start_time: Instant,
     // 导航请求
     pending_navigation: Option<NavigationRequest>,
+    // 交互管理器
+    interaction: InteractionManager,
 }
 
 #[derive(Clone)]
@@ -375,6 +378,7 @@ impl MiniAppWindow {
             click_start_pos: (0.0, 0.0),
             click_start_time: now,
             pending_navigation: None,
+            interaction: InteractionManager::new(),
         };
         
         // 加载首页
@@ -598,11 +602,15 @@ impl MiniAppWindow {
         };
         
         let current_path = page.path.clone();
+        let wxml_nodes = page.wxml_nodes.clone();
         
         // 渲染内容区域
-        if let (Some(canvas), Some(renderer)) = (&mut self.canvas, &mut self.renderer) {
+        if let Some(canvas) = &mut self.canvas {
             canvas.clear(Color::from_hex(0xF5F5F5));
-            renderer.render(canvas, &page.wxml_nodes, &page_data);
+            
+            if let Some(renderer) = &mut self.renderer {
+                renderer.render_with_interaction(canvas, &wxml_nodes, &page_data, &mut self.interaction);
+            }
         }
         
         // 渲染 TabBar（如果当前页面在 TabBar 中）
@@ -808,6 +816,18 @@ impl MiniAppWindow {
         } else {
             // 内容区域点击
             let actual_y = y + self.scroll.get_position();
+            
+            // 调试：打印点击位置
+            println!("🖱️ Click at ({:.1}, {:.1}) actual_y={:.1}", x, y, actual_y);
+            
+            // 使用交互管理器处理点击
+            if let Some(result) = self.interaction.handle_click(x, actual_y) {
+                self.handle_interaction_result(result);
+                self.needs_redraw = true;
+                return;
+            }
+            
+            // 检查事件绑定
             if let Some(renderer) = &self.renderer {
                 if let Some(binding) = renderer.hit_test(x, actual_y) {
                     println!("👆 {} -> {}", binding.event_type, binding.handler);
@@ -818,6 +838,33 @@ impl MiniAppWindow {
                     self.print_js_output();
                     self.needs_redraw = true;
                 }
+            }
+        }
+    }
+    
+    /// 处理交互结果
+    fn handle_interaction_result(&mut self, result: InteractionResult) {
+        match result {
+            InteractionResult::Toggle { id, checked } => {
+                println!("🔘 Toggle {}: {}", id, checked);
+            }
+            InteractionResult::Select { id, value } => {
+                println!("🔘 Select {}: {}", id, value);
+            }
+            InteractionResult::SliderChange { id, value } => {
+                println!("🎚️ Slider {}: {}", id, value);
+            }
+            InteractionResult::SliderEnd { id } => {
+                println!("🎚️ Slider {} released", id);
+            }
+            InteractionResult::Focus { id } => {
+                println!("📝 Focus: {}", id);
+            }
+            InteractionResult::InputChange { id, value } => {
+                println!("📝 Input {}: {}", id, value);
+            }
+            InteractionResult::InputBlur { id, value } => {
+                println!("📝 Blur {}: {}", id, value);
             }
         }
     }
@@ -987,12 +1034,68 @@ impl ApplicationHandler for MiniAppWindow {
             WindowEvent::KeyboardInput { event, .. } => {
                 use winit::keyboard::{PhysicalKey, KeyCode};
                 if event.state == ElementState::Pressed {
+                    // 处理输入框文本输入
+                    if self.interaction.has_focused_input() {
+                        let mut handled = true;
+                        let key_input = if let PhysicalKey::Code(code) = event.physical_key {
+                            match code {
+                                KeyCode::Backspace => Some(KeyInput::Backspace),
+                                KeyCode::Delete => Some(KeyInput::Delete),
+                                KeyCode::ArrowLeft => Some(KeyInput::Left),
+                                KeyCode::ArrowRight => Some(KeyInput::Right),
+                                KeyCode::Home => Some(KeyInput::Home),
+                                KeyCode::End => Some(KeyInput::End),
+                                KeyCode::Enter => Some(KeyInput::Enter),
+                                KeyCode::Escape => Some(KeyInput::Escape),
+                                _ => { handled = false; None }
+                            }
+                        } else {
+                            handled = false;
+                            None
+                        };
+                        
+                        if let Some(ki) = key_input {
+                            if let Some(result) = self.interaction.handle_key_input(ki) {
+                                self.handle_interaction_result(result);
+                            }
+                            handled = true;
+                        }
+                        
+                        // 处理文本输入（包括 ASCII 字符）
+                        if let Some(ref text) = event.text {
+                            for c in text.chars() {
+                                if c.is_control() { continue; }
+                                if let Some(result) = self.interaction.handle_key_input(KeyInput::Char(c)) {
+                                    self.handle_interaction_result(result);
+                                }
+                            }
+                            handled = true;
+                        }
+                        
+                        if handled {
+                            self.needs_redraw = true;
+                            if let Some(w) = &self.window { w.request_redraw(); }
+                            return;
+                        }
+                    }
+                    
+                    // 默认键盘处理
                     if let PhysicalKey::Code(code) = event.physical_key {
                         match code {
-                            KeyCode::Escape => event_loop.exit(),
+                            KeyCode::Escape => {
+                                if self.interaction.has_focused_input() {
+                                    if let Some(result) = self.interaction.blur_input() {
+                                        self.handle_interaction_result(result);
+                                    }
+                                    self.needs_redraw = true;
+                                } else {
+                                    event_loop.exit();
+                                }
+                            }
                             KeyCode::Backspace => {
-                                self.pending_navigation = Some(NavigationRequest::NavigateBack);
-                                if let Some(w) = &self.window { w.request_redraw(); }
+                                if !self.interaction.has_focused_input() {
+                                    self.pending_navigation = Some(NavigationRequest::NavigateBack);
+                                }
                             }
                             KeyCode::ArrowUp => self.scroll.handle_wheel(8.0),
                             KeyCode::ArrowDown => self.scroll.handle_wheel(-8.0),
@@ -1001,6 +1104,36 @@ impl ApplicationHandler for MiniAppWindow {
                             _ => {}
                         }
                         if let Some(w) = &self.window { w.request_redraw(); }
+                    }
+                }
+            }
+            
+            // IME 输入支持（中文等）
+            WindowEvent::Ime(ime) => {
+                use winit::event::Ime;
+                match ime {
+                    Ime::Commit(text) => {
+                        if self.interaction.has_focused_input() {
+                            for c in text.chars() {
+                                if let Some(result) = self.interaction.handle_key_input(KeyInput::Char(c)) {
+                                    self.handle_interaction_result(result);
+                                }
+                            }
+                            self.needs_redraw = true;
+                            if let Some(w) = &self.window { w.request_redraw(); }
+                        }
+                    }
+                    Ime::Preedit(text, cursor) => {
+                        // 预编辑文本（输入法候选）- 可以显示但暂不处理
+                        if !text.is_empty() {
+                            println!("📝 IME Preedit: {} {:?}", text, cursor);
+                        }
+                    }
+                    Ime::Enabled => {
+                        println!("📝 IME Enabled");
+                    }
+                    Ime::Disabled => {
+                        println!("📝 IME Disabled");
                     }
                 }
             }
@@ -1015,7 +1148,15 @@ impl ApplicationHandler for MiniAppWindow {
                 let x = position.x as f32 / self.scale_factor as f32;
                 let y = position.y as f32 / self.scale_factor as f32;
                 self.mouse_pos = (x, y);
-                if self.scroll.is_dragging {
+                
+                // 处理滑块拖动
+                if self.interaction.is_dragging_slider() {
+                    if let Some(result) = self.interaction.handle_mouse_move(x, y + self.scroll.get_position()) {
+                        self.handle_interaction_result(result);
+                    }
+                    self.needs_redraw = true;
+                    if let Some(w) = &self.window { w.request_redraw(); }
+                } else if self.scroll.is_dragging {
                     self.scroll.update_drag(y);
                     if let Some(w) = &self.window { w.request_redraw(); }
                 }
@@ -1035,16 +1176,48 @@ impl ApplicationHandler for MiniAppWindow {
                     ElementState::Pressed => {
                         self.click_start_pos = self.mouse_pos;
                         self.click_start_time = Instant::now();
-                        self.scroll.begin_drag(self.mouse_pos.1);
+                        
+                        let x = self.mouse_pos.0;
+                        let y = self.mouse_pos.1;
+                        let actual_y = y + self.scroll.get_position();
+                        
+                        // 检查是否点击了滑块，如果是则立即开始拖动
+                        if let Some(element) = self.interaction.hit_test(x, actual_y) {
+                            if element.interaction_type == mini_render::ui::interaction::InteractionType::Slider && !element.disabled {
+                                // 开始滑块拖动
+                                if let Some(result) = self.interaction.handle_click(x, actual_y) {
+                                    self.handle_interaction_result(result);
+                                    self.needs_redraw = true;
+                                    if let Some(w) = &self.window { w.request_redraw(); }
+                                }
+                                return;
+                            }
+                        }
+                        
+                        // 如果不是在拖动滑块，才开始滚动拖动
+                        if !self.interaction.is_dragging_slider() {
+                            self.scroll.begin_drag(self.mouse_pos.1);
+                        }
                     }
                     ElementState::Released => {
+                        // 结束滑块拖动
+                        if let Some(result) = self.interaction.handle_mouse_release() {
+                            self.handle_interaction_result(result);
+                        }
+                        
                         let needs_animation = self.scroll.end_drag();
                         let dx = (self.mouse_pos.0 - self.click_start_pos.0).abs();
                         let dy = (self.mouse_pos.1 - self.click_start_pos.1).abs();
                         let duration = self.click_start_time.elapsed().as_millis();
-                        if dx < 10.0 && dy < 10.0 && duration < 200 {
+                        
+                        // 如果是短点击且移动距离小，则处理点击事件
+                        if dx < 10.0 && dy < 10.0 && duration < 300 {
                             self.handle_click(self.mouse_pos.0, self.mouse_pos.1);
                         }
+                        
+                        self.needs_redraw = true;
+                        if let Some(w) = &self.window { w.request_redraw(); }
+                        
                         if needs_animation {
                             if let Some(w) = &self.window { w.request_redraw(); }
                         }

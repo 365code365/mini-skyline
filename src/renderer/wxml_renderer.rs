@@ -1,12 +1,21 @@
-//! WXML 渲染器 - 完整支持微信小程序样式
+//! WXML 渲染器 - 使用组件系统渲染微信小程序
 
 use crate::parser::wxml::{WxmlNode, WxmlNodeType};
-use crate::parser::wxss::{StyleSheet, StyleValue, LengthUnit, rpx_to_px};
+use crate::parser::wxss::StyleSheet;
 use crate::text::TextRenderer;
-use crate::{Canvas, Color, Paint, PaintStyle, Path, Rect as GeoRect};
+use crate::ui::interaction::{InteractionManager, InteractiveElement, InteractionType};
+use crate::{Canvas, Color, Rect as GeoRect};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use taffy::prelude::*;
+
+use super::components::{
+    RenderNode, NodeStyle, ComponentContext,
+    ViewComponent, TextComponent, ButtonComponent, IconComponent,
+    ProgressComponent, SwitchComponent, CheckboxComponent, RadioComponent,
+    SliderComponent, InputComponent, ImageComponent,
+    build_base_style,
+};
 
 #[derive(Debug, Clone)]
 pub struct EventBinding {
@@ -14,24 +23,6 @@ pub struct EventBinding {
     pub handler: String,
     pub data: HashMap<String, String>,
     pub bounds: GeoRect,
-}
-
-struct RenderNode {
-    tag: String,
-    text: String,
-    taffy_node: NodeId,
-    style: NodeStyle,
-    children: Vec<RenderNode>,
-    events: Vec<(String, String, HashMap<String, String>)>,
-}
-
-#[derive(Clone, Default)]
-struct NodeStyle {
-    background_color: Option<Color>,
-    text_color: Option<Color>,
-    border_radius: f32,
-    font_size: f32,
-    opacity: f32,
 }
 
 pub struct WxmlRenderer {
@@ -53,20 +44,55 @@ impl WxmlRenderer {
             .or_else(|_| TextRenderer::from_bytes(include_bytes!("../../assets/ArialUnicode.ttf")))
             .ok();
         
-        if text_renderer.is_some() { 
-            println!("✅ Text renderer ready (scale: {}x)", scale_factor); 
-        }
-        
         Self { 
             stylesheet, 
             screen_width,
             screen_height,
-            event_bindings: Vec::new(), 
+            event_bindings: Vec::new(),
             text_renderer,
             scale_factor,
         }
     }
 
+    /// 渲染 WXML 节点，使用交互管理器处理状态
+    pub fn render_with_interaction(
+        &mut self, 
+        canvas: &mut Canvas, 
+        nodes: &[WxmlNode], 
+        data: &JsonValue,
+        interaction: &mut InteractionManager,
+    ) {
+        self.event_bindings.clear();
+        interaction.clear_elements();
+        
+        let rendered = crate::parser::TemplateEngine::render(nodes, data);
+        let mut taffy = TaffyTree::new();
+        
+        let mut render_nodes = Vec::new();
+        for node in &rendered {
+            if let Some(rn) = self.build_tree(&mut taffy, node) {
+                render_nodes.push(rn);
+            }
+        }
+        
+        let child_ids: Vec<NodeId> = render_nodes.iter().map(|n| n.taffy_node).collect();
+        let root = taffy.new_with_children(
+            Style {
+                size: Size { width: length(self.screen_width * self.scale_factor), height: auto() },
+                flex_direction: FlexDirection::Column,
+                ..Default::default()
+            },
+            &child_ids,
+        ).unwrap();
+        
+        taffy.compute_layout(root, Size::MAX_CONTENT).unwrap();
+        
+        for rn in &render_nodes {
+            self.draw_with_interaction(canvas, &taffy, rn, 0.0, 0.0, interaction);
+        }
+    }
+    
+    /// 兼容旧接口
     pub fn render(&mut self, canvas: &mut Canvas, nodes: &[WxmlNode], data: &JsonValue) {
         self.event_bindings.clear();
         let rendered = crate::parser::TemplateEngine::render(nodes, data);
@@ -109,133 +135,401 @@ impl WxmlRenderer {
                 ..Default::default()
             }).unwrap();
             return Some(RenderNode {
-                tag: "#text".into(), text: text.into(), taffy_node: tn,
+                tag: "#text".into(), 
+                text: text.into(), 
+                attrs: HashMap::new(),
+                taffy_node: tn,
                 style: NodeStyle { font_size: fs, text_color: Some(Color::BLACK), opacity: 1.0, ..Default::default() },
-                children: vec![], events: vec![],
+                children: vec![], 
+                events: vec![],
             });
         }
+        
         if node.node_type != WxmlNodeType::Element { return None; }
 
-        let classes = self.get_classes(node);
-        let css = self.stylesheet.get_styles(&classes, &node.tag_name);
-        let (mut ts, mut ns) = self.build_styles(&css, &node.tag_name);
-
-        let mut events = vec![];
-        for attr in ["bindtap", "catchtap"] {
-            if let Some(h) = node.get_attr(attr) {
-                let mut d = HashMap::new();
-                for (k, v) in &node.attributes {
-                    if k.starts_with("data-") { d.insert(k[5..].into(), v.clone()); }
+        let tag = node.tag_name.as_str();
+        let mut ctx = ComponentContext {
+            scale_factor: sf,
+            screen_width: self.screen_width,
+            screen_height: self.screen_height,
+            stylesheet: &self.stylesheet,
+            taffy,
+        };
+        
+        let mut render_node = match tag {
+            "text" => TextComponent::build(node, &mut ctx),
+            "button" => ButtonComponent::build(node, &mut ctx),
+            "icon" => IconComponent::build(node, &mut ctx),
+            "progress" => ProgressComponent::build(node, &mut ctx),
+            "switch" => SwitchComponent::build(node, &mut ctx),
+            "checkbox" => CheckboxComponent::build(node, &mut ctx),
+            "radio" => RadioComponent::build(node, &mut ctx),
+            "slider" => SliderComponent::build(node, &mut ctx),
+            "input" | "textarea" => InputComponent::build(node, &mut ctx),
+            "image" => ImageComponent::build(node, &mut ctx),
+            _ => ViewComponent::build(node, &mut ctx),
+        };
+        
+        if let Some(ref mut rn) = render_node {
+            if !Self::is_leaf_component(tag) {
+                let mut children = vec![];
+                for c in &node.children {
+                    if let Some(cr) = self.build_tree(ctx.taffy, c) { 
+                        children.push(cr); 
+                    }
                 }
-                events.push(("tap".into(), h.into(), d));
+                
+                if !children.is_empty() {
+                    let child_ids: Vec<NodeId> = children.iter().map(|c| c.taffy_node).collect();
+                    let (ts, _) = build_base_style(node, &mut ctx);
+                    let new_tn = ctx.taffy.new_with_children(ts, &child_ids).unwrap();
+                    rn.taffy_node = new_tn;
+                    rn.children = children;
+                }
             }
         }
-
-        // 处理 text 元素 - 直接渲染文本内容
-        if node.tag_name == "text" {
-            let text_content = self.get_text(node);
-            if text_content.is_empty() { return None; }
-            let tw = self.measure_text(&text_content, ns.font_size * sf);
-            ts.size = Size { width: length(tw), height: length((ns.font_size + 4.0) * sf) };
-            let tn = taffy.new_leaf(ts).unwrap();
-            return Some(RenderNode {
-                tag: "text".into(),
-                text: text_content,
-                taffy_node: tn,
-                style: ns,
-                children: vec![],
-                events,
-            });
-        }
-
-        let btn_text = if node.tag_name == "button" {
-            let t = self.get_text(node);
-            let tw = self.measure_text(&t, ns.font_size * sf);
-            ts.size = Size { width: length(tw + 32.0 * sf), height: length((ns.font_size + 20.0) * sf) };
-            t
-        } else { String::new() };
-
-        let mut children = vec![];
-        if node.tag_name != "button" {
-            for c in &node.children {
-                if let Some(cr) = self.build_tree(taffy, c) { children.push(cr); }
+        
+        render_node
+    }
+    
+    fn is_leaf_component(tag: &str) -> bool {
+        matches!(tag, 
+            "text" | "button" | "icon" | "progress" | "switch" | 
+            "checkbox" | "radio" | "slider" | "input" | "textarea" | "image"
+        )
+    }
+    
+    fn get_component_id(node: &RenderNode, bounds: &GeoRect) -> String {
+        if let Some(id) = node.attrs.get("id") {
+            if !id.is_empty() {
+                return id.clone();
             }
         }
-
-        let cids: Vec<NodeId> = children.iter().map(|c| c.taffy_node).collect();
-        let tn = taffy.new_with_children(ts, &cids).unwrap();
-        Some(RenderNode { tag: node.tag_name.clone(), text: btn_text, taffy_node: tn, style: ns, children, events })
+        format!("{}_{:.0}_{:.0}", node.tag, bounds.x, bounds.y)
     }
 
-    fn build_styles(&self, props: &HashMap<String, StyleValue>, tag: &str) -> (Style, NodeStyle) {
+    fn draw_with_interaction(
+        &mut self, 
+        canvas: &mut Canvas, 
+        taffy: &TaffyTree, 
+        node: &RenderNode, 
+        ox: f32, 
+        oy: f32,
+        interaction: &mut InteractionManager,
+    ) {
         let sf = self.scale_factor;
-        let mut ns = NodeStyle { font_size: 14.0, opacity: 1.0, ..Default::default() };
-        let mut ts = Style { display: Display::Flex, flex_direction: FlexDirection::Column, ..Default::default() };
-
-        if tag == "button" {
-            ns.background_color = Some(Color::from_hex(0x07C160));
-            ns.text_color = Some(Color::WHITE);
-            ns.border_radius = 5.0 * sf;
-            ns.font_size = 17.0;
-            ts.padding = Rect { top: length(10.0 * sf), right: length(16.0 * sf), bottom: length(10.0 * sf), left: length(16.0 * sf) };
-        }
-
-        for (name, value) in props {
-            match name.as_str() {
-                "width" => if let Some(v) = self.to_dimension(value) { ts.size.width = v; }
-                "height" => if let Some(v) = self.to_dimension(value) { ts.size.height = v; }
-                "padding" => if let Some(v) = self.to_px(value) {
-                    let sv = v * sf;
-                    ts.padding = Rect { top: length(sv), right: length(sv), bottom: length(sv), left: length(sv) };
+        let layout = taffy.layout(node.taffy_node).unwrap();
+        let x = ox + layout.location.x;
+        let y = oy + layout.location.y;
+        let w = layout.size.width;
+        let h = layout.size.height;
+        let logical_bounds = GeoRect::new(x / sf, y / sf, w / sf, h / sf);
+        
+        let component_id = Self::get_component_id(node, &logical_bounds);
+        
+        // 应用交互状态
+        let mut node_to_draw = node.clone();
+        if let Some(state) = interaction.get_state(&component_id) {
+            match node.tag.as_str() {
+                "checkbox" | "switch" => {
+                    node_to_draw.style.custom_data = if state.checked { 1.0 } else { 0.0 };
+                    // 更新颜色
+                    let checkbox_color = node.attrs.get("color")
+                        .and_then(|c| super::components::parse_color_str(c))
+                        .unwrap_or(Color::from_hex(0x09BB07));
+                    if state.checked {
+                        node_to_draw.style.background_color = Some(checkbox_color);
+                        node_to_draw.style.border_color = Some(checkbox_color);
+                    } else {
+                        node_to_draw.style.background_color = Some(Color::WHITE);
+                        node_to_draw.style.border_color = Some(Color::from_hex(0xD1D1D1));
+                    }
                 }
-                "padding-top" => if let Some(v) = self.to_px(value) { ts.padding.top = length(v * sf); }
-                "padding-right" => if let Some(v) = self.to_px(value) { ts.padding.right = length(v * sf); }
-                "padding-bottom" => if let Some(v) = self.to_px(value) { ts.padding.bottom = length(v * sf); }
-                "padding-left" => if let Some(v) = self.to_px(value) { ts.padding.left = length(v * sf); }
-                "margin" => if let Some(v) = self.to_px(value) {
-                    let sv = v * sf;
-                    ts.margin = Rect { top: length(sv), right: length(sv), bottom: length(sv), left: length(sv) };
+                "radio" => {
+                    node_to_draw.style.custom_data = if state.checked { 1.0 } else { 0.0 };
+                    // 更新颜色
+                    let radio_color = node.attrs.get("color")
+                        .and_then(|c| super::components::parse_color_str(c))
+                        .unwrap_or(Color::from_hex(0x09BB07));
+                    if state.checked {
+                        node_to_draw.style.background_color = Some(radio_color);
+                        node_to_draw.style.border_color = Some(radio_color);
+                    } else {
+                        node_to_draw.style.background_color = Some(Color::WHITE);
+                        node_to_draw.style.border_color = Some(Color::from_hex(0xD1D1D1));
+                    }
                 }
-                "margin-top" => if let Some(v) = self.to_px(value) { ts.margin.top = length(v * sf); }
-                "margin-bottom" => if let Some(v) = self.to_px(value) { ts.margin.bottom = length(v * sf); }
-                "display" => if let StyleValue::String(s) = value {
-                    ts.display = if s == "flex" { Display::Flex } else if s == "none" { Display::None } else { Display::Flex };
+                "slider" => {
+                    if let Ok(v) = state.value.parse::<f32>() {
+                        node_to_draw.style.custom_data = v / 100.0;
+                        if !node_to_draw.text.is_empty() {
+                            node_to_draw.text = format!("{}", v as i32);
+                        }
+                    }
                 }
-                "flex-direction" => if let StyleValue::String(s) = value {
-                    ts.flex_direction = if s == "row" { FlexDirection::Row } else { FlexDirection::Column };
+                "input" | "textarea" => {
+                    node_to_draw.text = state.value.clone();
+                    // 如果有值，更新文本颜色为黑色
+                    if !state.value.is_empty() {
+                        node_to_draw.style.text_color = Some(Color::BLACK);
+                    }
                 }
-                "justify-content" => if let StyleValue::String(s) = value {
-                    ts.justify_content = Some(match s.as_str() {
-                        "center" => JustifyContent::Center,
-                        "space-between" => JustifyContent::SpaceBetween,
-                        "space-around" => JustifyContent::SpaceAround,
-                        "flex-end" => JustifyContent::FlexEnd,
-                        _ => JustifyContent::FlexStart,
-                    });
-                }
-                "align-items" => if let StyleValue::String(s) = value {
-                    ts.align_items = Some(match s.as_str() {
-                        "center" => AlignItems::Center,
-                        "flex-end" => AlignItems::FlexEnd,
-                        "stretch" => AlignItems::Stretch,
-                        _ => AlignItems::FlexStart,
-                    });
-                }
-                "gap" => if let Some(v) = self.to_px(value) { 
-                    let sv = v * sf;
-                    ts.gap = Size { width: length(sv), height: length(sv) }; 
-                }
-                "background-color" | "background" => if let StyleValue::Color(c) = value { ns.background_color = Some(*c); }
-                "color" => if let StyleValue::Color(c) = value { ns.text_color = Some(*c); }
-                "border-radius" => if let Some(v) = self.to_px(value) { ns.border_radius = v * sf; }
-                "font-size" => if let Some(v) = self.to_px(value) { ns.font_size = v; }
-                "opacity" => if let StyleValue::Number(n) = value { ns.opacity = *n; }
                 _ => {}
             }
         }
-        (ts, ns)
+        
+        // 绘制组件 - 特殊处理 input 组件的光标
+        match node.tag.as_str() {
+            "input" | "textarea" => {
+                let focused = interaction.focused_input.as_ref()
+                    .map(|f| f.id == component_id)
+                    .unwrap_or(false);
+                let cursor_pos = if focused {
+                    interaction.focused_input.as_ref().map(|f| f.cursor_pos).unwrap_or(0)
+                } else {
+                    0
+                };
+                InputComponent::draw_with_cursor(
+                    &node_to_draw, canvas, self.text_renderer.as_ref(), 
+                    x, y, w, h, sf, focused, cursor_pos
+                );
+            }
+            _ => {
+                self.draw_component(canvas, &node_to_draw, x, y, w, h, sf);
+            }
+        }
+        
+        // 绘制子节点
+        if !Self::is_leaf_component(&node.tag) {
+            let text_color = node.style.text_color.unwrap_or(Color::BLACK);
+            for child in &node.children { 
+                self.draw_child_with_interaction(canvas, taffy, child, x, y, text_color, interaction); 
+            }
+        }
+
+        // 记录事件绑定
+        for (et, h, d) in &node.events {
+            self.event_bindings.push(EventBinding { 
+                event_type: et.clone(), 
+                handler: h.clone(), 
+                data: d.clone(), 
+                bounds: logical_bounds 
+            });
+        }
+        
+        // 注册交互元素
+        self.register_interactive_element(node, &node_to_draw, &logical_bounds, interaction);
+    }
+    
+    fn draw_child_with_interaction(
+        &mut self, 
+        canvas: &mut Canvas, 
+        taffy: &TaffyTree, 
+        node: &RenderNode, 
+        ox: f32, 
+        oy: f32, 
+        inherited_color: Color,
+        interaction: &mut InteractionManager,
+    ) {
+        let sf = self.scale_factor;
+        let layout = taffy.layout(node.taffy_node).unwrap();
+        let x = ox + layout.location.x;
+        let y = oy + layout.location.y;
+        let w = layout.size.width;
+        let h = layout.size.height;
+        let logical_bounds = GeoRect::new(x / sf, y / sf, w / sf, h / sf);
+
+        let text_color = node.style.text_color.unwrap_or(inherited_color);
+        let component_id = Self::get_component_id(node, &logical_bounds);
+        
+        let mut node_to_draw = node.clone();
+        if node_to_draw.style.text_color.is_none() {
+            node_to_draw.style.text_color = Some(text_color);
+        }
+        
+        // 应用交互状态
+        if let Some(state) = interaction.get_state(&component_id) {
+            match node.tag.as_str() {
+                "checkbox" | "switch" => {
+                    node_to_draw.style.custom_data = if state.checked { 1.0 } else { 0.0 };
+                    let checkbox_color = node.attrs.get("color")
+                        .and_then(|c| super::components::parse_color_str(c))
+                        .unwrap_or(Color::from_hex(0x09BB07));
+                    if state.checked {
+                        node_to_draw.style.background_color = Some(checkbox_color);
+                        node_to_draw.style.border_color = Some(checkbox_color);
+                    } else {
+                        node_to_draw.style.background_color = Some(Color::WHITE);
+                        node_to_draw.style.border_color = Some(Color::from_hex(0xD1D1D1));
+                    }
+                }
+                "radio" => {
+                    node_to_draw.style.custom_data = if state.checked { 1.0 } else { 0.0 };
+                    let radio_color = node.attrs.get("color")
+                        .and_then(|c| super::components::parse_color_str(c))
+                        .unwrap_or(Color::from_hex(0x09BB07));
+                    if state.checked {
+                        node_to_draw.style.background_color = Some(radio_color);
+                        node_to_draw.style.border_color = Some(radio_color);
+                    } else {
+                        node_to_draw.style.background_color = Some(Color::WHITE);
+                        node_to_draw.style.border_color = Some(Color::from_hex(0xD1D1D1));
+                    }
+                }
+                "slider" => {
+                    if let Ok(v) = state.value.parse::<f32>() {
+                        node_to_draw.style.custom_data = v / 100.0;
+                        if !node_to_draw.text.is_empty() {
+                            node_to_draw.text = format!("{}", v as i32);
+                        }
+                    }
+                }
+                "input" | "textarea" => {
+                    node_to_draw.text = state.value.clone();
+                    if !state.value.is_empty() {
+                        node_to_draw.style.text_color = Some(Color::BLACK);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // 绘制组件 - 特殊处理 input 组件的光标
+        match node.tag.as_str() {
+            "input" | "textarea" => {
+                let focused = interaction.focused_input.as_ref()
+                    .map(|f| f.id == component_id)
+                    .unwrap_or(false);
+                let cursor_pos = if focused {
+                    interaction.focused_input.as_ref().map(|f| f.cursor_pos).unwrap_or(0)
+                } else {
+                    0
+                };
+                InputComponent::draw_with_cursor(
+                    &node_to_draw, canvas, self.text_renderer.as_ref(), 
+                    x, y, w, h, sf, focused, cursor_pos
+                );
+            }
+            _ => {
+                self.draw_component(canvas, &node_to_draw, x, y, w, h, sf);
+            }
+        }
+        
+        if !Self::is_leaf_component(&node.tag) {
+            for child in &node.children { 
+                self.draw_child_with_interaction(canvas, taffy, child, x, y, text_color, interaction); 
+            }
+        }
+
+        for (et, h, d) in &node.events {
+            self.event_bindings.push(EventBinding { 
+                event_type: et.clone(), 
+                handler: h.clone(), 
+                data: d.clone(), 
+                bounds: logical_bounds 
+            });
+        }
+        
+        self.register_interactive_element(node, &node_to_draw, &logical_bounds, interaction);
+    }
+    
+    fn draw_component(&self, canvas: &mut Canvas, node: &RenderNode, x: f32, y: f32, w: f32, h: f32, sf: f32) {
+        match node.tag.as_str() {
+            "#text" | "text" => TextComponent::draw(node, canvas, self.text_renderer.as_ref(), x, y, w, h, sf),
+            "button" => ButtonComponent::draw(node, canvas, self.text_renderer.as_ref(), x, y, w, h, sf),
+            "icon" => IconComponent::draw(node, canvas, x, y, w, h, sf),
+            "progress" => ProgressComponent::draw(node, canvas, self.text_renderer.as_ref(), x, y, w, h, sf),
+            "switch" => SwitchComponent::draw(node, canvas, x, y, w, h, sf),
+            "checkbox" => CheckboxComponent::draw(node, canvas, x, y, w, h, sf),
+            "radio" => RadioComponent::draw(node, canvas, x, y, w, h, sf),
+            "slider" => SliderComponent::draw(node, canvas, self.text_renderer.as_ref(), x, y, w, h, sf),
+            "input" | "textarea" => InputComponent::draw(node, canvas, self.text_renderer.as_ref(), x, y, w, h, sf),
+            "image" => ImageComponent::draw(node, canvas, self.text_renderer.as_ref(), x, y, w, h, sf),
+            _ => ViewComponent::draw(node, canvas, x, y, w, h, sf),
+        }
+    }
+    
+    fn register_interactive_element(
+        &self, 
+        original_node: &RenderNode, 
+        drawn_node: &RenderNode,
+        bounds: &GeoRect, 
+        interaction: &mut InteractionManager
+    ) {
+        let disabled = original_node.attrs.get("disabled")
+            .map(|s| s == "true" || s == "{{true}}")
+            .unwrap_or(false);
+        
+        let id = Self::get_component_id(original_node, bounds);
+        
+        match original_node.tag.as_str() {
+            "checkbox" => {
+                interaction.register_element(InteractiveElement {
+                    interaction_type: InteractionType::Checkbox,
+                    id,
+                    bounds: *bounds,
+                    checked: drawn_node.style.custom_data > 0.5,
+                    value: original_node.attrs.get("value").cloned().unwrap_or_default(),
+                    disabled,
+                    min: 0.0,
+                    max: 1.0,
+                });
+            }
+            "radio" => {
+                interaction.register_element(InteractiveElement {
+                    interaction_type: InteractionType::Radio,
+                    id,
+                    bounds: *bounds,
+                    checked: drawn_node.style.custom_data > 0.5,
+                    value: original_node.attrs.get("value").cloned().unwrap_or_default(),
+                    disabled,
+                    min: 0.0,
+                    max: 1.0,
+                });
+            }
+            "switch" => {
+                interaction.register_element(InteractiveElement {
+                    interaction_type: InteractionType::Switch,
+                    id,
+                    bounds: *bounds,
+                    checked: drawn_node.style.custom_data > 0.5,
+                    value: original_node.text.clone(),
+                    disabled,
+                    min: 0.0,
+                    max: 1.0,
+                });
+            }
+            "slider" => {
+                let min = original_node.attrs.get("min").and_then(|s| s.parse().ok()).unwrap_or(0.0);
+                let max = original_node.attrs.get("max").and_then(|s| s.parse().ok()).unwrap_or(100.0);
+                interaction.register_element(InteractiveElement {
+                    interaction_type: InteractionType::Slider,
+                    id,
+                    bounds: *bounds,
+                    checked: false,
+                    value: format!("{}", (drawn_node.style.custom_data * 100.0) as i32),
+                    disabled,
+                    min,
+                    max,
+                });
+            }
+            "input" | "textarea" => {
+                interaction.register_element(InteractiveElement {
+                    interaction_type: InteractionType::Input,
+                    id,
+                    bounds: *bounds,
+                    checked: false,
+                    value: drawn_node.text.clone(),
+                    disabled,
+                    min: 0.0,
+                    max: 0.0,
+                });
+            }
+            _ => {}
+        }
     }
 
+    
     fn draw(&mut self, canvas: &mut Canvas, taffy: &TaffyTree, node: &RenderNode, ox: f32, oy: f32) {
         let sf = self.scale_factor;
         let layout = taffy.layout(node.taffy_node).unwrap();
@@ -245,42 +539,22 @@ impl WxmlRenderer {
         let h = layout.size.height;
         let logical_bounds = GeoRect::new(x / sf, y / sf, w / sf, h / sf);
 
-        if let Some(bg) = node.style.background_color {
-            let mut paint = Paint::new().with_color(bg).with_style(PaintStyle::Fill);
-            if node.style.opacity < 1.0 { paint.color.a = (paint.color.a as f32 * node.style.opacity) as u8; }
-            if node.style.border_radius > 0.0 {
-                let mut path = Path::new();
-                path.add_round_rect(x, y, w, h, node.style.border_radius);
-                canvas.draw_path(&path, &paint);
-            } else {
-                canvas.draw_rect(&GeoRect::new(x, y, w, h), &paint);
-            }
-        }
-
-        // 确定文本颜色（用于子元素继承）
-        let text_color = node.style.text_color.unwrap_or(Color::BLACK);
-
-        match node.tag.as_str() {
-            "#text" | "text" => {
-                // 文本节点使用自己的颜色
-                let c = node.style.text_color.unwrap_or(text_color);
-                self.draw_text(canvas, &node.text, x, y, node.style.font_size * sf, c);
-            }
-            "button" => {
-                let c = node.style.text_color.unwrap_or(Color::WHITE);
-                let scaled_fs = node.style.font_size * sf;
-                let tw = self.measure_text(&node.text, scaled_fs);
-                self.draw_text(canvas, &node.text, x + (w - tw) / 2.0, y + (h - scaled_fs) / 2.0, scaled_fs, c);
-            }
-            _ => {
-                for child in &node.children { 
-                    self.draw_with_color(canvas, taffy, child, x, y, text_color); 
-                }
+        self.draw_component(canvas, node, x, y, w, h, sf);
+        
+        if !Self::is_leaf_component(&node.tag) {
+            let text_color = node.style.text_color.unwrap_or(Color::BLACK);
+            for child in &node.children { 
+                self.draw_with_color(canvas, taffy, child, x, y, text_color); 
             }
         }
 
         for (et, h, d) in &node.events {
-            self.event_bindings.push(EventBinding { event_type: et.clone(), handler: h.clone(), data: d.clone(), bounds: logical_bounds });
+            self.event_bindings.push(EventBinding { 
+                event_type: et.clone(), 
+                handler: h.clone(), 
+                data: d.clone(), 
+                bounds: logical_bounds 
+            });
         }
     }
     
@@ -293,90 +567,39 @@ impl WxmlRenderer {
         let h = layout.size.height;
         let logical_bounds = GeoRect::new(x / sf, y / sf, w / sf, h / sf);
 
-        if let Some(bg) = node.style.background_color {
-            let mut paint = Paint::new().with_color(bg).with_style(PaintStyle::Fill);
-            if node.style.opacity < 1.0 { paint.color.a = (paint.color.a as f32 * node.style.opacity) as u8; }
-            if node.style.border_radius > 0.0 {
-                let mut path = Path::new();
-                path.add_round_rect(x, y, w, h, node.style.border_radius);
-                canvas.draw_path(&path, &paint);
-            } else {
-                canvas.draw_rect(&GeoRect::new(x, y, w, h), &paint);
-            }
+        let text_color = node.style.text_color.unwrap_or(inherited_color);
+        let mut node_with_color = node.clone();
+        if node_with_color.style.text_color.is_none() {
+            node_with_color.style.text_color = Some(text_color);
         }
 
-        // 使用自己的颜色或继承的颜色
-        let text_color = node.style.text_color.unwrap_or(inherited_color);
-
-        match node.tag.as_str() {
-            "#text" | "text" => {
-                self.draw_text(canvas, &node.text, x, y, node.style.font_size * sf, text_color);
-            }
-            "button" => {
-                let c = node.style.text_color.unwrap_or(Color::WHITE);
-                let scaled_fs = node.style.font_size * sf;
-                let tw = self.measure_text(&node.text, scaled_fs);
-                self.draw_text(canvas, &node.text, x + (w - tw) / 2.0, y + (h - scaled_fs) / 2.0, scaled_fs, c);
-            }
-            _ => {
-                for child in &node.children { 
-                    self.draw_with_color(canvas, taffy, child, x, y, text_color); 
-                }
+        self.draw_component(canvas, &node_with_color, x, y, w, h, sf);
+        
+        if !Self::is_leaf_component(&node.tag) {
+            for child in &node.children { 
+                self.draw_with_color(canvas, taffy, child, x, y, text_color); 
             }
         }
 
         for (et, h, d) in &node.events {
-            self.event_bindings.push(EventBinding { event_type: et.clone(), handler: h.clone(), data: d.clone(), bounds: logical_bounds });
-        }
-    }
-
-    fn to_px(&self, v: &StyleValue) -> Option<f32> {
-        match v {
-            StyleValue::Length(n, u) => Some(match u {
-                LengthUnit::Px => *n,
-                LengthUnit::Rpx => rpx_to_px(*n, self.screen_width),
-                LengthUnit::Percent => *n / 100.0 * self.screen_width,
-                LengthUnit::Em | LengthUnit::Rem => *n * 16.0,
-                LengthUnit::Vw => *n / 100.0 * self.screen_width,
-                LengthUnit::Vh => *n / 100.0 * self.screen_height,
-            }),
-            StyleValue::Number(n) => Some(*n),
-            _ => None,
-        }
-    }
-    
-    fn to_dimension(&self, v: &StyleValue) -> Option<Dimension> {
-        match v {
-            StyleValue::Auto => Some(Dimension::Auto),
-            StyleValue::Length(n, LengthUnit::Percent) => Some(percent(*n / 100.0)),
-            _ => self.to_px(v).map(|px| length(px * self.scale_factor)),
-        }
-    }
-
-    fn draw_text(&self, canvas: &mut Canvas, text: &str, x: f32, y: f32, size: f32, color: Color) {
-        if let Some(ref tr) = self.text_renderer {
-            tr.draw_text(canvas, text, x, y + size, size, &Paint::new().with_color(color).with_style(PaintStyle::Fill));
+            self.event_bindings.push(EventBinding { 
+                event_type: et.clone(), 
+                handler: h.clone(), 
+                data: d.clone(), 
+                bounds: logical_bounds 
+            });
         }
     }
 
     fn measure_text(&self, text: &str, size: f32) -> f32 {
-        self.text_renderer.as_ref().map(|tr| tr.measure_text(text, size)).unwrap_or(text.chars().count() as f32 * size * 0.6)
+        self.text_renderer.as_ref()
+            .map(|tr| tr.measure_text(text, size))
+            .unwrap_or(text.chars().count() as f32 * size * 0.6)
     }
 
-    fn get_classes<'a>(&self, node: &'a WxmlNode) -> Vec<&'a str> {
-        node.get_attr("class").map(|s| s.split_whitespace().collect()).unwrap_or_default()
+    pub fn get_event_bindings(&self) -> &[EventBinding] { 
+        &self.event_bindings 
     }
-
-    fn get_text(&self, node: &WxmlNode) -> String {
-        let mut s = String::new();
-        for c in &node.children {
-            if c.node_type == WxmlNodeType::Text { s.push_str(&c.text_content); }
-            else { s.push_str(&self.get_text(c)); }
-        }
-        s.trim().into()
-    }
-
-    pub fn get_event_bindings(&self) -> &[EventBinding] { &self.event_bindings }
 
     pub fn hit_test(&self, x: f32, y: f32) -> Option<&EventBinding> {
         self.event_bindings.iter().rev().find(|b| b.bounds.contains(&crate::Point::new(x, y)))

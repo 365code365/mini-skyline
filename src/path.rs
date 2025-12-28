@@ -100,6 +100,11 @@ impl Path {
         self.cubic_to(cx + kx, cy - ry, cx + rx, cy - ky, cx + rx, cy);
         self.close()
     }
+    
+    /// 添加圆形
+    pub fn add_circle(&mut self, cx: f32, cy: f32, r: f32) -> &mut Self {
+        self.add_oval(cx, cy, r, r)
+    }
 
     pub fn commands(&self) -> &[PathCommand] {
         &self.commands

@@ -1,71 +1,48 @@
-<view class="page">
-  <!-- 导航栏 -->
-  <view class="navbar">
-    <text class="navbar-title">列表页</text>
-  </view>
-
-  <!-- 列表内容 -->
-  <view class="list-container">
-    <view class="list-item" bindtap="onItemTap" data-id="1">
-      <view class="item-icon bg-blue">
-        <text class="icon-text">1</text>
-      </view>
-      <view class="item-content">
-        <text class="item-title">商品一</text>
-        <text class="item-desc">这是商品一的描述信息</text>
-      </view>
-      <text class="item-arrow">→</text>
+<view class="container">
+  <view class="section">
+    <text class="section-title">复选框 Checkbox</text>
+    <view class="row">
+      <checkbox checked="true" color="#07C160"></checkbox>
+      <text>已选中</text>
     </view>
-
-    <view class="list-item" bindtap="onItemTap" data-id="2">
-      <view class="item-icon bg-green">
-        <text class="icon-text">2</text>
-      </view>
-      <view class="item-content">
-        <text class="item-title">商品二</text>
-        <text class="item-desc">这是商品二的描述信息</text>
-      </view>
-      <text class="item-arrow">→</text>
+    <view class="row">
+      <checkbox></checkbox>
+      <text>未选中</text>
     </view>
-
-    <view class="list-item" bindtap="onItemTap" data-id="3">
-      <view class="item-icon bg-orange">
-        <text class="icon-text">3</text>
-      </view>
-      <view class="item-content">
-        <text class="item-title">商品三</text>
-        <text class="item-desc">这是商品三的描述信息</text>
-      </view>
-      <text class="item-arrow">→</text>
-    </view>
-
-    <view class="list-item" bindtap="onItemTap" data-id="4">
-      <view class="item-icon bg-purple">
-        <text class="icon-text">4</text>
-      </view>
-      <view class="item-content">
-        <text class="item-title">商品四</text>
-        <text class="item-desc">这是商品四的描述信息</text>
-      </view>
-      <text class="item-arrow">→</text>
-    </view>
-
-    <view class="list-item" bindtap="onItemTap" data-id="5">
-      <view class="item-icon bg-red">
-        <text class="icon-text">5</text>
-      </view>
-      <view class="item-content">
-        <text class="item-title">商品五</text>
-        <text class="item-desc">这是商品五的描述信息</text>
-      </view>
-      <text class="item-arrow">→</text>
+    <view class="row">
+      <checkbox checked="true" disabled="true"></checkbox>
+      <text>禁用已选</text>
     </view>
   </view>
 
-  <!-- 底部按钮 -->
-  <view class="bottom-actions">
-    <view class="action-btn" bindtap="onBackHome">
-      <text class="btn-text">返回首页</text>
+  <view class="section">
+    <text class="section-title">单选框 Radio</text>
+    <view class="row">
+      <radio checked="true" color="#07C160"></radio>
+      <text>选项一</text>
     </view>
+    <view class="row">
+      <radio></radio>
+      <text>选项二</text>
+    </view>
+    <view class="row">
+      <radio disabled="true"></radio>
+      <text>禁用选项</text>
+    </view>
+  </view>
+
+  <view class="section">
+    <text class="section-title">滑块 Slider</text>
+    <slider value="30" show-value="true"></slider>
+    <slider value="60" activeColor="#FF6B6B" block-color="#FF6B6B"></slider>
+    <slider value="80" activeColor="#4ECDC4" block-size="20"></slider>
+  </view>
+
+  <view class="section">
+    <text class="section-title">输入框 Input</text>
+    <input placeholder="请输入内容"></input>
+    <input value="已有内容" placeholder="请输入"></input>
+    <input password="true" placeholder="请输入密码"></input>
+    <input disabled="true" placeholder="禁用输入框"></input>
   </view>
 </view>
