@@ -131,6 +131,23 @@ impl WxmlRenderer {
             }
         }
 
+        // 处理 text 元素 - 直接渲染文本内容
+        if node.tag_name == "text" {
+            let text_content = self.get_text(node);
+            if text_content.is_empty() { return None; }
+            let tw = self.measure_text(&text_content, ns.font_size * sf);
+            ts.size = Size { width: length(tw), height: length((ns.font_size + 4.0) * sf) };
+            let tn = taffy.new_leaf(ts).unwrap();
+            return Some(RenderNode {
+                tag: "text".into(),
+                text: text_content,
+                taffy_node: tn,
+                style: ns,
+                children: vec![],
+                events,
+            });
+        }
+
         let btn_text = if node.tag_name == "button" {
             let t = self.get_text(node);
             let tw = self.measure_text(&t, ns.font_size * sf);
@@ -244,8 +261,8 @@ impl WxmlRenderer {
         let text_color = node.style.text_color.unwrap_or(Color::BLACK);
 
         match node.tag.as_str() {
-            "#text" => {
-                // 文本节点使用自己的颜色或继承的颜色
+            "#text" | "text" => {
+                // 文本节点使用自己的颜色
                 let c = node.style.text_color.unwrap_or(text_color);
                 self.draw_text(canvas, &node.text, x, y, node.style.font_size * sf, c);
             }
@@ -292,7 +309,7 @@ impl WxmlRenderer {
         let text_color = node.style.text_color.unwrap_or(inherited_color);
 
         match node.tag.as_str() {
-            "#text" => {
+            "#text" | "text" => {
                 self.draw_text(canvas, &node.text, x, y, node.style.font_size * sf, text_color);
             }
             "button" => {
