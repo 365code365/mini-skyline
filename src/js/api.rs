@@ -197,6 +197,7 @@ impl MiniAppApi {
             var __app = null;
             var __pages = {};
             var __currentPage = null;
+            var __pendingNavigation = null;
             
             function App(config) {
                 __app = config;
@@ -248,14 +249,6 @@ impl MiniAppApi {
                 // 保存当前页面
                 __currentPage = page;
                 
-                // 触发生命周期
-                if (page.onLoad) {
-                    page.onLoad({});
-                }
-                if (page.onShow) {
-                    page.onShow();
-                }
-                
                 return page;
             }
             
@@ -291,6 +284,65 @@ impl MiniAppApi {
                 }
                 return '{}';
             }
+            
+            // 导航 API
+            wx.navigateTo = function(options) {
+                __pendingNavigation = {
+                    type: 'navigateTo',
+                    url: options.url
+                };
+                __native_print('[Navigate] navigateTo: ' + options.url);
+                options.success && options.success();
+            };
+            
+            wx.navigateBack = function(options) {
+                options = options || {};
+                __pendingNavigation = {
+                    type: 'navigateBack',
+                    delta: options.delta || 1
+                };
+                __native_print('[Navigate] navigateBack');
+                options.success && options.success();
+            };
+            
+            wx.switchTab = function(options) {
+                __pendingNavigation = {
+                    type: 'switchTab',
+                    url: options.url
+                };
+                __native_print('[Navigate] switchTab: ' + options.url);
+                options.success && options.success();
+            };
+            
+            wx.redirectTo = function(options) {
+                __pendingNavigation = {
+                    type: 'navigateTo',
+                    url: options.url
+                };
+                __native_print('[Navigate] redirectTo: ' + options.url);
+                options.success && options.success();
+            };
+            
+            wx.reLaunch = function(options) {
+                __pendingNavigation = {
+                    type: 'switchTab',
+                    url: options.url
+                };
+                __native_print('[Navigate] reLaunch: ' + options.url);
+                options.success && options.success();
+            };
+            
+            // Toast API
+            wx.showToast = function(options) {
+                __native_print('[Toast] ' + (options.title || ''));
+                options.success && options.success();
+            };
+            
+            wx.hideToast = function() {};
+            wx.showLoading = function(options) {
+                __native_print('[Loading] ' + (options.title || ''));
+            };
+            wx.hideLoading = function() {};
         "#)?;
         
         Ok(())

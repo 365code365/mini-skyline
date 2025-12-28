@@ -210,6 +210,8 @@ impl StyleResolver {
                     LengthUnit::Percent => *num / 100.0 * self.screen_width,
                     LengthUnit::Em => *num * 16.0,
                     LengthUnit::Rem => *num * 16.0,
+                    LengthUnit::Vw => *num / 100.0 * self.screen_width,
+                    LengthUnit::Vh => *num / 100.0 * 667.0, // 默认高度
                 })
             }
             StyleValue::Number(n) => Some(*n),

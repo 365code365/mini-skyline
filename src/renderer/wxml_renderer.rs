@@ -1,10 +1,9 @@
-//! WXML 渲染器 - 使用 Taffy 进行 Flexbox 布局，支持高 DPI 和系统字体
+//! WXML 渲染器 - 完整支持微信小程序样式
 
 use crate::parser::wxml::{WxmlNode, WxmlNodeType};
 use crate::parser::wxss::{StyleSheet, StyleValue, LengthUnit, rpx_to_px};
 use crate::text::TextRenderer;
-use crate::{Canvas, Color, Paint, PaintStyle, Path};
-use crate::geometry::Rect as GeoRect;
+use crate::{Canvas, Color, Paint, PaintStyle, Path, Rect as GeoRect};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use taffy::prelude::*;
@@ -32,40 +31,44 @@ struct NodeStyle {
     text_color: Option<Color>,
     border_radius: f32,
     font_size: f32,
+    opacity: f32,
 }
 
 pub struct WxmlRenderer {
     stylesheet: StyleSheet,
     screen_width: f32,
-    scale_factor: f32,
+    screen_height: f32,
     event_bindings: Vec<EventBinding>,
     text_renderer: Option<TextRenderer>,
+    scale_factor: f32,
 }
 
 impl WxmlRenderer {
-    pub fn new(stylesheet: StyleSheet, screen_width: f32, _h: f32) -> Self {
-        Self::new_with_scale(stylesheet, screen_width, _h, 1.0)
+    pub fn new(stylesheet: StyleSheet, screen_width: f32, screen_height: f32) -> Self {
+        Self::new_with_scale(stylesheet, screen_width, screen_height, 1.0)
     }
     
-    pub fn new_with_scale(stylesheet: StyleSheet, screen_width: f32, _h: f32, scale_factor: f32) -> Self {
-        // 优先加载系统字体
+    pub fn new_with_scale(stylesheet: StyleSheet, screen_width: f32, screen_height: f32, scale_factor: f32) -> Self {
         let text_renderer = TextRenderer::load_system_font()
-            .or_else(|_| {
-                println!("⚠️ System font not found, using bundled font");
-                TextRenderer::from_bytes(include_bytes!("../../assets/ArialUnicode.ttf"))
-            })
+            .or_else(|_| TextRenderer::from_bytes(include_bytes!("../../assets/ArialUnicode.ttf")))
             .ok();
         
         if text_renderer.is_some() { 
             println!("✅ Text renderer ready (scale: {}x)", scale_factor); 
         }
         
-        Self { stylesheet, screen_width, scale_factor, event_bindings: Vec::new(), text_renderer }
+        Self { 
+            stylesheet, 
+            screen_width,
+            screen_height,
+            event_bindings: Vec::new(), 
+            text_renderer,
+            scale_factor,
+        }
     }
 
     pub fn render(&mut self, canvas: &mut Canvas, nodes: &[WxmlNode], data: &JsonValue) {
         self.event_bindings.clear();
-        
         let rendered = crate::parser::TemplateEngine::render(nodes, data);
         let mut taffy = TaffyTree::new();
         
@@ -79,7 +82,7 @@ impl WxmlRenderer {
         let child_ids: Vec<NodeId> = render_nodes.iter().map(|n| n.taffy_node).collect();
         let root = taffy.new_with_children(
             Style {
-                size: Size { width: length(self.screen_width), height: auto() },
+                size: Size { width: length(self.screen_width * self.scale_factor), height: auto() },
                 flex_direction: FlexDirection::Column,
                 ..Default::default()
             },
@@ -89,23 +92,25 @@ impl WxmlRenderer {
         taffy.compute_layout(root, Size::MAX_CONTENT).unwrap();
         
         for rn in &render_nodes {
-            self.draw_node(canvas, &taffy, rn, 0.0, 0.0);
+            self.draw(canvas, &taffy, rn, 0.0, 0.0);
         }
     }
 
     fn build_tree(&self, taffy: &mut TaffyTree, node: &WxmlNode) -> Option<RenderNode> {
+        let sf = self.scale_factor;
+        
         if node.node_type == WxmlNodeType::Text {
             let text = node.text_content.trim();
             if text.is_empty() { return None; }
             let fs = 14.0;
-            let tw = self.measure_text(text, fs);
+            let tw = self.measure_text(text, fs * sf);
             let tn = taffy.new_leaf(Style {
-                size: Size { width: length(tw), height: length(fs + 4.0) },
+                size: Size { width: length(tw), height: length((fs + 4.0) * sf) },
                 ..Default::default()
             }).unwrap();
             return Some(RenderNode {
                 tag: "#text".into(), text: text.into(), taffy_node: tn,
-                style: NodeStyle { font_size: fs, text_color: Some(Color::BLACK), ..Default::default() },
+                style: NodeStyle { font_size: fs, text_color: Some(Color::BLACK), opacity: 1.0, ..Default::default() },
                 children: vec![], events: vec![],
             });
         }
@@ -113,7 +118,7 @@ impl WxmlRenderer {
 
         let classes = self.get_classes(node);
         let css = self.stylesheet.get_styles(&classes, &node.tag_name);
-        let (mut ts, ns) = self.build_styles(&css, &node.tag_name);
+        let (mut ts, mut ns) = self.build_styles(&css, &node.tag_name);
 
         let mut events = vec![];
         for attr in ["bindtap", "catchtap"] {
@@ -128,8 +133,8 @@ impl WxmlRenderer {
 
         let btn_text = if node.tag_name == "button" {
             let t = self.get_text(node);
-            let tw = self.measure_text(&t, ns.font_size);
-            ts.size = Size { width: length(tw + 32.0), height: length(ns.font_size + 16.0) };
+            let tw = self.measure_text(&t, ns.font_size * sf);
+            ts.size = Size { width: length(tw + 32.0 * sf), height: length((ns.font_size + 20.0) * sf) };
             t
         } else { String::new() };
 
@@ -146,94 +151,165 @@ impl WxmlRenderer {
     }
 
     fn build_styles(&self, props: &HashMap<String, StyleValue>, tag: &str) -> (Style, NodeStyle) {
-        let mut ns = NodeStyle { font_size: 14.0, ..Default::default() };
+        let sf = self.scale_factor;
+        let mut ns = NodeStyle { font_size: 14.0, opacity: 1.0, ..Default::default() };
         let mut ts = Style { display: Display::Flex, flex_direction: FlexDirection::Column, ..Default::default() };
 
         if tag == "button" {
             ns.background_color = Some(Color::from_hex(0x07C160));
             ns.text_color = Some(Color::WHITE);
-            ns.border_radius = 4.0;
-            ts.padding = taffy::Rect { top: length(8.0), right: length(16.0), bottom: length(8.0), left: length(16.0) };
+            ns.border_radius = 5.0 * sf;
+            ns.font_size = 17.0;
+            ts.padding = Rect { top: length(10.0 * sf), right: length(16.0 * sf), bottom: length(10.0 * sf), left: length(16.0 * sf) };
         }
 
         for (name, value) in props {
             match name.as_str() {
+                "width" => if let Some(v) = self.to_dimension(value) { ts.size.width = v; }
+                "height" => if let Some(v) = self.to_dimension(value) { ts.size.height = v; }
                 "padding" => if let Some(v) = self.to_px(value) {
-                    ts.padding = taffy::Rect { top: length(v), right: length(v), bottom: length(v), left: length(v) };
+                    let sv = v * sf;
+                    ts.padding = Rect { top: length(sv), right: length(sv), bottom: length(sv), left: length(sv) };
                 }
+                "padding-top" => if let Some(v) = self.to_px(value) { ts.padding.top = length(v * sf); }
+                "padding-right" => if let Some(v) = self.to_px(value) { ts.padding.right = length(v * sf); }
+                "padding-bottom" => if let Some(v) = self.to_px(value) { ts.padding.bottom = length(v * sf); }
+                "padding-left" => if let Some(v) = self.to_px(value) { ts.padding.left = length(v * sf); }
                 "margin" => if let Some(v) = self.to_px(value) {
-                    ts.margin = taffy::Rect { top: length(v), right: length(v), bottom: length(v), left: length(v) };
+                    let sv = v * sf;
+                    ts.margin = Rect { top: length(sv), right: length(sv), bottom: length(sv), left: length(sv) };
                 }
-                "margin-bottom" => if let Some(v) = self.to_px(value) { ts.margin.bottom = length(v); }
-                "display" => if let StyleValue::String(s) = value { if s == "flex" { ts.display = Display::Flex; } }
+                "margin-top" => if let Some(v) = self.to_px(value) { ts.margin.top = length(v * sf); }
+                "margin-bottom" => if let Some(v) = self.to_px(value) { ts.margin.bottom = length(v * sf); }
+                "display" => if let StyleValue::String(s) = value {
+                    ts.display = if s == "flex" { Display::Flex } else if s == "none" { Display::None } else { Display::Flex };
+                }
                 "flex-direction" => if let StyleValue::String(s) = value {
                     ts.flex_direction = if s == "row" { FlexDirection::Row } else { FlexDirection::Column };
                 }
-                "gap" => if let Some(v) = self.to_px(value) { ts.gap = Size { width: length(v), height: length(v) }; }
+                "justify-content" => if let StyleValue::String(s) = value {
+                    ts.justify_content = Some(match s.as_str() {
+                        "center" => JustifyContent::Center,
+                        "space-between" => JustifyContent::SpaceBetween,
+                        "space-around" => JustifyContent::SpaceAround,
+                        "flex-end" => JustifyContent::FlexEnd,
+                        _ => JustifyContent::FlexStart,
+                    });
+                }
+                "align-items" => if let StyleValue::String(s) = value {
+                    ts.align_items = Some(match s.as_str() {
+                        "center" => AlignItems::Center,
+                        "flex-end" => AlignItems::FlexEnd,
+                        "stretch" => AlignItems::Stretch,
+                        _ => AlignItems::FlexStart,
+                    });
+                }
+                "gap" => if let Some(v) = self.to_px(value) { 
+                    let sv = v * sf;
+                    ts.gap = Size { width: length(sv), height: length(sv) }; 
+                }
                 "background-color" | "background" => if let StyleValue::Color(c) = value { ns.background_color = Some(*c); }
                 "color" => if let StyleValue::Color(c) = value { ns.text_color = Some(*c); }
-                "border-radius" => if let Some(v) = self.to_px(value) { ns.border_radius = v; }
+                "border-radius" => if let Some(v) = self.to_px(value) { ns.border_radius = v * sf; }
                 "font-size" => if let Some(v) = self.to_px(value) { ns.font_size = v; }
+                "opacity" => if let StyleValue::Number(n) = value { ns.opacity = *n; }
                 _ => {}
             }
         }
         (ts, ns)
     }
 
-    fn draw_node(&mut self, canvas: &mut Canvas, taffy: &TaffyTree, node: &RenderNode, ox: f32, oy: f32) {
+    fn draw(&mut self, canvas: &mut Canvas, taffy: &TaffyTree, node: &RenderNode, ox: f32, oy: f32) {
+        let sf = self.scale_factor;
         let layout = taffy.layout(node.taffy_node).unwrap();
-        let lx = ox + layout.location.x;
-        let ly = oy + layout.location.y;
-        let lw = layout.size.width;
-        let lh = layout.size.height;
-        
-        let s = self.scale_factor;
-        let px = lx * s;
-        let py = ly * s;
-        let pw = lw * s;
-        let ph = lh * s;
-        let bounds = GeoRect::new(px, py, pw, ph);
+        let x = ox + layout.location.x;
+        let y = oy + layout.location.y;
+        let w = layout.size.width;
+        let h = layout.size.height;
+        let logical_bounds = GeoRect::new(x / sf, y / sf, w / sf, h / sf);
 
-        // 绘制背景
         if let Some(bg) = node.style.background_color {
-            let paint = Paint::new().with_color(bg).with_style(PaintStyle::Fill);
-            let pr = node.style.border_radius * s;
-            if pr > 0.0 {
+            let mut paint = Paint::new().with_color(bg).with_style(PaintStyle::Fill);
+            if node.style.opacity < 1.0 { paint.color.a = (paint.color.a as f32 * node.style.opacity) as u8; }
+            if node.style.border_radius > 0.0 {
                 let mut path = Path::new();
-                path.add_round_rect(px, py, pw, ph, pr);
+                path.add_round_rect(x, y, w, h, node.style.border_radius);
                 canvas.draw_path(&path, &paint);
             } else {
-                canvas.draw_rect(&bounds, &paint);
+                canvas.draw_rect(&GeoRect::new(x, y, w, h), &paint);
             }
         }
 
-        // 绘制内容
-        let font_size = node.style.font_size * s;
+        // 确定文本颜色（用于子元素继承）
+        let text_color = node.style.text_color.unwrap_or(Color::BLACK);
+
         match node.tag.as_str() {
             "#text" => {
-                let c = node.style.text_color.unwrap_or(Color::BLACK);
-                self.draw_text_scaled(canvas, &node.text, px, py + font_size, font_size, c);
+                // 文本节点使用自己的颜色或继承的颜色
+                let c = node.style.text_color.unwrap_or(text_color);
+                self.draw_text(canvas, &node.text, x, y, node.style.font_size * sf, c);
             }
             "button" => {
                 let c = node.style.text_color.unwrap_or(Color::WHITE);
-                let tw = self.measure_text_scaled(&node.text, font_size);
-                let tx = px + (pw - tw) / 2.0;
-                let ty = py + (ph + font_size * 0.7) / 2.0;
-                self.draw_text_scaled(canvas, &node.text, tx, ty, font_size, c);
+                let scaled_fs = node.style.font_size * sf;
+                let tw = self.measure_text(&node.text, scaled_fs);
+                self.draw_text(canvas, &node.text, x + (w - tw) / 2.0, y + (h - scaled_fs) / 2.0, scaled_fs, c);
             }
             _ => {
-                for child in &node.children { self.draw_node(canvas, taffy, child, lx, ly); }
+                for child in &node.children { 
+                    self.draw_with_color(canvas, taffy, child, x, y, text_color); 
+                }
             }
         }
 
-        // 注册事件
-        for (et, handler, data) in &node.events {
-            self.event_bindings.push(EventBinding {
-                event_type: et.clone(),
-                handler: handler.clone(),
-                data: data.clone(),
-                bounds: GeoRect::new(lx, ly, lw, lh),
-            });
+        for (et, h, d) in &node.events {
+            self.event_bindings.push(EventBinding { event_type: et.clone(), handler: h.clone(), data: d.clone(), bounds: logical_bounds });
+        }
+    }
+    
+    fn draw_with_color(&mut self, canvas: &mut Canvas, taffy: &TaffyTree, node: &RenderNode, ox: f32, oy: f32, inherited_color: Color) {
+        let sf = self.scale_factor;
+        let layout = taffy.layout(node.taffy_node).unwrap();
+        let x = ox + layout.location.x;
+        let y = oy + layout.location.y;
+        let w = layout.size.width;
+        let h = layout.size.height;
+        let logical_bounds = GeoRect::new(x / sf, y / sf, w / sf, h / sf);
+
+        if let Some(bg) = node.style.background_color {
+            let mut paint = Paint::new().with_color(bg).with_style(PaintStyle::Fill);
+            if node.style.opacity < 1.0 { paint.color.a = (paint.color.a as f32 * node.style.opacity) as u8; }
+            if node.style.border_radius > 0.0 {
+                let mut path = Path::new();
+                path.add_round_rect(x, y, w, h, node.style.border_radius);
+                canvas.draw_path(&path, &paint);
+            } else {
+                canvas.draw_rect(&GeoRect::new(x, y, w, h), &paint);
+            }
+        }
+
+        // 使用自己的颜色或继承的颜色
+        let text_color = node.style.text_color.unwrap_or(inherited_color);
+
+        match node.tag.as_str() {
+            "#text" => {
+                self.draw_text(canvas, &node.text, x, y, node.style.font_size * sf, text_color);
+            }
+            "button" => {
+                let c = node.style.text_color.unwrap_or(Color::WHITE);
+                let scaled_fs = node.style.font_size * sf;
+                let tw = self.measure_text(&node.text, scaled_fs);
+                self.draw_text(canvas, &node.text, x + (w - tw) / 2.0, y + (h - scaled_fs) / 2.0, scaled_fs, c);
+            }
+            _ => {
+                for child in &node.children { 
+                    self.draw_with_color(canvas, taffy, child, x, y, text_color); 
+                }
+            }
+        }
+
+        for (et, h, d) in &node.events {
+            self.event_bindings.push(EventBinding { event_type: et.clone(), handler: h.clone(), data: d.clone(), bounds: logical_bounds });
         }
     }
 
@@ -244,21 +320,26 @@ impl WxmlRenderer {
                 LengthUnit::Rpx => rpx_to_px(*n, self.screen_width),
                 LengthUnit::Percent => *n / 100.0 * self.screen_width,
                 LengthUnit::Em | LengthUnit::Rem => *n * 16.0,
+                LengthUnit::Vw => *n / 100.0 * self.screen_width,
+                LengthUnit::Vh => *n / 100.0 * self.screen_height,
             }),
             StyleValue::Number(n) => Some(*n),
             _ => None,
         }
     }
-
-    fn draw_text_scaled(&self, canvas: &mut Canvas, text: &str, x: f32, y: f32, size: f32, color: Color) {
-        if let Some(ref tr) = self.text_renderer {
-            let paint = Paint::new().with_color(color).with_style(PaintStyle::Fill);
-            tr.draw_text(canvas, text, x, y, size, &paint);
+    
+    fn to_dimension(&self, v: &StyleValue) -> Option<Dimension> {
+        match v {
+            StyleValue::Auto => Some(Dimension::Auto),
+            StyleValue::Length(n, LengthUnit::Percent) => Some(percent(*n / 100.0)),
+            _ => self.to_px(v).map(|px| length(px * self.scale_factor)),
         }
     }
 
-    fn measure_text_scaled(&self, text: &str, size: f32) -> f32 {
-        self.text_renderer.as_ref().map(|tr| tr.measure_text(text, size)).unwrap_or(text.chars().count() as f32 * size * 0.6)
+    fn draw_text(&self, canvas: &mut Canvas, text: &str, x: f32, y: f32, size: f32, color: Color) {
+        if let Some(ref tr) = self.text_renderer {
+            tr.draw_text(canvas, text, x, y + size, size, &Paint::new().with_color(color).with_style(PaintStyle::Fill));
+        }
     }
 
     fn measure_text(&self, text: &str, size: f32) -> f32 {

@@ -6,7 +6,8 @@ Page({
         todo1Done: true,
         todo2Done: false,
         todo3Done: false,
-        selectedColor: 'green'
+        selectedColor: 'green',
+        currentTab: 0
     },
     
     onLoad: function() {
@@ -80,5 +81,41 @@ Page({
         } else if (type === 'more') {
             __native_print('Opening settings...');
         }
+    },
+    
+    // Tab 切换
+    onSwitchTab: function(e) {
+        var tab = parseInt(e.currentTarget.dataset.tab);
+        __native_print('Switch to tab: ' + tab);
+        this.setData({ currentTab: tab });
+    },
+    
+    // 页面导航
+    onGoList: function() {
+        __native_print('Navigate to list page');
+        wx.navigateTo({
+            url: '/pages/list/list'
+        });
+    },
+    
+    onGoDetail: function() {
+        __native_print('Navigate to detail page');
+        wx.navigateTo({
+            url: '/pages/detail/detail?id=1'
+        });
+    },
+    
+    // 退出登录
+    onLogout: function() {
+        __native_print('User logout');
+        this.setData({
+            count: 0,
+            todoCount: 3,
+            todo1Done: false,
+            todo2Done: false,
+            todo3Done: false,
+            currentTab: 0
+        });
+        __native_print('Data reset');
     }
 });

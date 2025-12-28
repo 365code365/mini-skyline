@@ -1,0 +1,71 @@
+<view class="page">
+  <!-- 导航栏 -->
+  <view class="navbar">
+    <text class="navbar-title">列表页</text>
+  </view>
+
+  <!-- 列表内容 -->
+  <view class="list-container">
+    <view class="list-item" bindtap="onItemTap" data-id="1">
+      <view class="item-icon bg-blue">
+        <text class="icon-text">1</text>
+      </view>
+      <view class="item-content">
+        <text class="item-title">商品一</text>
+        <text class="item-desc">这是商品一的描述信息</text>
+      </view>
+      <text class="item-arrow">→</text>
+    </view>
+
+    <view class="list-item" bindtap="onItemTap" data-id="2">
+      <view class="item-icon bg-green">
+        <text class="icon-text">2</text>
+      </view>
+      <view class="item-content">
+        <text class="item-title">商品二</text>
+        <text class="item-desc">这是商品二的描述信息</text>
+      </view>
+      <text class="item-arrow">→</text>
+    </view>
+
+    <view class="list-item" bindtap="onItemTap" data-id="3">
+      <view class="item-icon bg-orange">
+        <text class="icon-text">3</text>
+      </view>
+      <view class="item-content">
+        <text class="item-title">商品三</text>
+        <text class="item-desc">这是商品三的描述信息</text>
+      </view>
+      <text class="item-arrow">→</text>
+    </view>
+
+    <view class="list-item" bindtap="onItemTap" data-id="4">
+      <view class="item-icon bg-purple">
+        <text class="icon-text">4</text>
+      </view>
+      <view class="item-content">
+        <text class="item-title">商品四</text>
+        <text class="item-desc">这是商品四的描述信息</text>
+      </view>
+      <text class="item-arrow">→</text>
+    </view>
+
+    <view class="list-item" bindtap="onItemTap" data-id="5">
+      <view class="item-icon bg-red">
+        <text class="icon-text">5</text>
+      </view>
+      <view class="item-content">
+        <text class="item-title">商品五</text>
+        <text class="item-desc">这是商品五的描述信息</text>
+      </view>
+      <text class="item-arrow">→</text>
+    </view>
+  </view>
+
+  <!-- 底部按钮 -->
+  <view class="bottom-actions">
+    <view class="action-btn" bindtap="onBackHome">
+      <text class="btn-text">返回首页</text>
+    </view>
+  </view>
+</view>
