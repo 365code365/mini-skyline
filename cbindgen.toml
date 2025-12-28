@@ -1,0 +1,10 @@
+[defines]
+
+language = "C"
+include_guard = "MINI_RENDER_H"
+
+[export]
+include = ["Color", "Point", "Rect", "Canvas"]
+
+[fn]
+prefix = "mr_"

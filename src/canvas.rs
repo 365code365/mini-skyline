@@ -1,0 +1,365 @@
+//! Canvas 画布模块 - 核心渲染接口
+
+use crate::{Color, Paint, PaintStyle, Path, Point, Rect};
+
+/// 画布 - 主要渲染接口
+pub struct Canvas {
+    width: u32,
+    height: u32,
+    pixels: Vec<Color>,
+    clip_rect: Option<Rect>,
+}
+
+impl Canvas {
+    pub fn new(width: u32, height: u32) -> Self {
+        Self {
+            width,
+            height,
+            pixels: vec![Color::TRANSPARENT; (width * height) as usize],
+            clip_rect: None,
+        }
+    }
+
+    pub fn width(&self) -> u32 { self.width }
+    pub fn height(&self) -> u32 { self.height }
+
+    /// 清空画布
+    pub fn clear(&mut self, color: Color) {
+        self.pixels.fill(color);
+    }
+
+    /// 设置裁剪区域
+    pub fn clip_rect(&mut self, rect: Rect) {
+        self.clip_rect = Some(rect);
+    }
+
+    /// 重置裁剪区域
+    pub fn reset_clip(&mut self) {
+        self.clip_rect = None;
+    }
+
+    /// 获取像素
+    pub fn get_pixel(&self, x: u32, y: u32) -> Color {
+        if x < self.width && y < self.height {
+            self.pixels[(y * self.width + x) as usize]
+        } else {
+            Color::TRANSPARENT
+        }
+    }
+
+    /// 设置像素（带 alpha 混合）
+    fn set_pixel(&mut self, x: i32, y: i32, color: Color) {
+        if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {
+            return;
+        }
+
+        // 检查裁剪区域
+        if let Some(clip) = &self.clip_rect {
+            if x < clip.x as i32 || x >= clip.right() as i32 ||
+               y < clip.y as i32 || y >= clip.bottom() as i32 {
+                return;
+            }
+        }
+
+        let idx = (y as u32 * self.width + x as u32) as usize;
+        if color.a == 255 {
+            self.pixels[idx] = color;
+        } else if color.a > 0 {
+            self.pixels[idx] = color.blend(&self.pixels[idx]);
+        }
+    }
+
+    /// 设置像素（带抗锯齿 coverage）
+    fn set_pixel_aa(&mut self, x: i32, y: i32, color: Color, coverage: f32) {
+        if coverage <= 0.0 { return; }
+        let a = (color.a as f32 * coverage.min(1.0)) as u8;
+        self.set_pixel(x, y, Color::new(color.r, color.g, color.b, a));
+    }
+
+    /// 绘制矩形
+    pub fn draw_rect(&mut self, rect: &Rect, paint: &Paint) {
+        match paint.style {
+            PaintStyle::Fill => self.fill_rect(rect, &paint.color),
+            PaintStyle::Stroke => self.stroke_rect(rect, paint),
+            PaintStyle::FillAndStroke => {
+                self.fill_rect(rect, &paint.color);
+                self.stroke_rect(rect, paint);
+            }
+        }
+    }
+
+    fn fill_rect(&mut self, rect: &Rect, color: &Color) {
+        let x0 = rect.x.max(0.0) as i32;
+        let y0 = rect.y.max(0.0) as i32;
+        let x1 = rect.right().min(self.width as f32) as i32;
+        let y1 = rect.bottom().min(self.height as f32) as i32;
+
+        for y in y0..y1 {
+            for x in x0..x1 {
+                self.set_pixel(x, y, *color);
+            }
+        }
+    }
+
+    fn stroke_rect(&mut self, rect: &Rect, paint: &Paint) {
+        let w = paint.stroke_width;
+        // 上边
+        self.fill_rect(&Rect::new(rect.x, rect.y, rect.width, w), &paint.color);
+        // 下边
+        self.fill_rect(&Rect::new(rect.x, rect.bottom() - w, rect.width, w), &paint.color);
+        // 左边
+        self.fill_rect(&Rect::new(rect.x, rect.y, w, rect.height), &paint.color);
+        // 右边
+        self.fill_rect(&Rect::new(rect.right() - w, rect.y, w, rect.height), &paint.color);
+    }
+
+    /// 绘制圆形
+    pub fn draw_circle(&mut self, cx: f32, cy: f32, radius: f32, paint: &Paint) {
+        match paint.style {
+            PaintStyle::Fill => self.fill_circle(cx, cy, radius, paint),
+            PaintStyle::Stroke => self.stroke_circle(cx, cy, radius, paint),
+            PaintStyle::FillAndStroke => {
+                self.fill_circle(cx, cy, radius, paint);
+                self.stroke_circle(cx, cy, radius, paint);
+            }
+        }
+    }
+
+    fn fill_circle(&mut self, cx: f32, cy: f32, radius: f32, paint: &Paint) {
+        let r2 = radius * radius;
+        let x0 = (cx - radius - 1.0).max(0.0) as i32;
+        let y0 = (cy - radius - 1.0).max(0.0) as i32;
+        let x1 = (cx + radius + 1.0).min(self.width as f32) as i32;
+        let y1 = (cy + radius + 1.0).min(self.height as f32) as i32;
+
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let dx = x as f32 + 0.5 - cx;
+                let dy = y as f32 + 0.5 - cy;
+                let d2 = dx * dx + dy * dy;
+
+                if paint.anti_alias {
+                    let d = d2.sqrt();
+                    if d <= radius + 0.5 {
+                        let coverage = (radius + 0.5 - d).min(1.0);
+                        self.set_pixel_aa(x, y, paint.color, coverage);
+                    }
+                } else if d2 <= r2 {
+                    self.set_pixel(x, y, paint.color);
+                }
+            }
+        }
+    }
+
+    fn stroke_circle(&mut self, cx: f32, cy: f32, radius: f32, paint: &Paint) {
+        let inner = radius - paint.stroke_width / 2.0;
+        let outer = radius + paint.stroke_width / 2.0;
+
+        let x0 = (cx - outer - 1.0).max(0.0) as i32;
+        let y0 = (cy - outer - 1.0).max(0.0) as i32;
+        let x1 = (cx + outer + 1.0).min(self.width as f32) as i32;
+        let y1 = (cy + outer + 1.0).min(self.height as f32) as i32;
+
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let dx = x as f32 + 0.5 - cx;
+                let dy = y as f32 + 0.5 - cy;
+                let d = (dx * dx + dy * dy).sqrt();
+
+                if d >= inner && d <= outer {
+                    if paint.anti_alias {
+                        let coverage = (1.0 - (d - inner).abs().min(outer - d).min(1.0)).max(0.0);
+                        let coverage = if d < inner + 0.5 { d - inner + 0.5 }
+                                      else if d > outer - 0.5 { outer - d + 0.5 }
+                                      else { 1.0 };
+                        self.set_pixel_aa(x, y, paint.color, coverage.min(1.0));
+                    } else {
+                        self.set_pixel(x, y, paint.color);
+                    }
+                }
+            }
+        }
+    }
+
+    /// 绘制线段
+    pub fn draw_line(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, paint: &Paint) {
+        if paint.anti_alias {
+            self.draw_line_aa(x0, y0, x1, y1, paint);
+        } else {
+            self.draw_line_bresenham(x0 as i32, y0 as i32, x1 as i32, y1 as i32, paint);
+        }
+    }
+
+    /// Bresenham 直线算法
+    fn draw_line_bresenham(&mut self, mut x0: i32, mut y0: i32, x1: i32, y1: i32, paint: &Paint) {
+        let dx = (x1 - x0).abs();
+        let dy = -(y1 - y0).abs();
+        let sx = if x0 < x1 { 1 } else { -1 };
+        let sy = if y0 < y1 { 1 } else { -1 };
+        let mut err = dx + dy;
+
+        loop {
+            self.set_pixel(x0, y0, paint.color);
+            if x0 == x1 && y0 == y1 { break; }
+            let e2 = 2 * err;
+            if e2 >= dy {
+                err += dy;
+                x0 += sx;
+            }
+            if e2 <= dx {
+                err += dx;
+                y0 += sy;
+            }
+        }
+    }
+
+    /// 抗锯齿直线 (Wu's algorithm)
+    fn draw_line_aa(&mut self, mut x0: f32, mut y0: f32, mut x1: f32, mut y1: f32, paint: &Paint) {
+        let steep = (y1 - y0).abs() > (x1 - x0).abs();
+        if steep {
+            std::mem::swap(&mut x0, &mut y0);
+            std::mem::swap(&mut x1, &mut y1);
+        }
+        if x0 > x1 {
+            std::mem::swap(&mut x0, &mut x1);
+            std::mem::swap(&mut y0, &mut y1);
+        }
+
+        let dx = x1 - x0;
+        let dy = y1 - y0;
+        let gradient = if dx == 0.0 { 1.0 } else { dy / dx };
+
+        // 起点
+        let xend = x0.round();
+        let yend = y0 + gradient * (xend - x0);
+        let xpxl1 = xend as i32;
+        let mut intery = yend + gradient;
+
+        // 终点
+        let xend = x1.round();
+        let xpxl2 = xend as i32;
+
+        for x in xpxl1..=xpxl2 {
+            let y = intery.floor() as i32;
+            let frac = intery - intery.floor();
+
+            if steep {
+                self.set_pixel_aa(y, x, paint.color, 1.0 - frac);
+                self.set_pixel_aa(y + 1, x, paint.color, frac);
+            } else {
+                self.set_pixel_aa(x, y, paint.color, 1.0 - frac);
+                self.set_pixel_aa(x, y + 1, paint.color, frac);
+            }
+            intery += gradient;
+        }
+    }
+
+    /// 绘制路径
+    pub fn draw_path(&mut self, path: &Path, paint: &Paint) {
+        let contours = path.flatten(1.0);
+
+        match paint.style {
+            PaintStyle::Fill => self.fill_path(&contours, paint),
+            PaintStyle::Stroke => self.stroke_path(&contours, paint),
+            PaintStyle::FillAndStroke => {
+                self.fill_path(&contours, paint);
+                self.stroke_path(&contours, paint);
+            }
+        }
+    }
+
+    /// 填充路径（扫描线算法）
+    fn fill_path(&mut self, contours: &[Vec<Point>], paint: &Paint) {
+        if contours.is_empty() { return; }
+
+        // 找边界
+        let mut min_y = f32::MAX;
+        let mut max_y = f32::MIN;
+        for contour in contours {
+            for p in contour {
+                min_y = min_y.min(p.y);
+                max_y = max_y.max(p.y);
+            }
+        }
+
+        let y0 = min_y.floor() as i32;
+        let y1 = max_y.ceil() as i32;
+
+        // 扫描线填充
+        for y in y0..=y1 {
+            let mut intersections = Vec::new();
+            let scan_y = y as f32 + 0.5;
+
+            for contour in contours {
+                for i in 0..contour.len() {
+                    let p0 = &contour[i];
+                    let p1 = &contour[(i + 1) % contour.len()];
+
+                    if (p0.y <= scan_y && p1.y > scan_y) || (p1.y <= scan_y && p0.y > scan_y) {
+                        let t = (scan_y - p0.y) / (p1.y - p0.y);
+                        let x = p0.x + t * (p1.x - p0.x);
+                        intersections.push(x);
+                    }
+                }
+            }
+
+            intersections.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+            for pair in intersections.chunks(2) {
+                if pair.len() == 2 {
+                    let x0 = pair[0].floor() as i32;
+                    let x1 = pair[1].ceil() as i32;
+                    for x in x0..=x1 {
+                        self.set_pixel(x, y, paint.color);
+                    }
+                }
+            }
+        }
+    }
+
+    /// 描边路径
+    fn stroke_path(&mut self, contours: &[Vec<Point>], paint: &Paint) {
+        for contour in contours {
+            for i in 0..contour.len().saturating_sub(1) {
+                self.draw_line(
+                    contour[i].x, contour[i].y,
+                    contour[i + 1].x, contour[i + 1].y,
+                    paint
+                );
+            }
+        }
+    }
+
+    /// 导出为 RGBA 字节数组
+    pub fn to_rgba(&self) -> Vec<u8> {
+        let mut data = Vec::with_capacity((self.width * self.height * 4) as usize);
+        for pixel in &self.pixels {
+            data.push(pixel.r);
+            data.push(pixel.g);
+            data.push(pixel.b);
+            data.push(pixel.a);
+        }
+        data
+    }
+
+    /// 保存为 PNG
+    pub fn save_png(&self, path: &str) -> Result<(), String> {
+        use image::{ImageBuffer, Rgba};
+
+        let img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::from_raw(
+            self.width,
+            self.height,
+            self.to_rgba()
+        ).ok_or("Failed to create image buffer")?;
+
+        img.save(path).map_err(|e| e.to_string())
+    }
+
+    /// 直接设置像素（供文本渲染使用）
+    pub fn set_pixel_direct(&mut self, x: i32, y: i32, color: Color) {
+        if x >= 0 && y >= 0 && x < self.width as i32 && y < self.height as i32 {
+            let idx = (y as u32 * self.width + x as u32) as usize;
+            self.pixels[idx] = color;
+        }
+    }
+}

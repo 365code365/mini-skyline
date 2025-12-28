@@ -1,0 +1,32 @@
+{
+    "pages": [
+        "pages/index/index",
+        "pages/list/list",
+        "pages/detail/detail"
+    ],
+    "window": {
+        "navigationBarTitleText": "Mini App Demo",
+        "navigationBarBackgroundColor": "#007AFF",
+        "navigationBarTextStyle": "white",
+        "backgroundColor": "#F5F5F5"
+    },
+    "tabBar": {
+        "color": "#999999",
+        "selectedColor": "#007AFF",
+        "backgroundColor": "#FFFFFF",
+        "list": [
+            {
+                "pagePath": "pages/index/index",
+                "text": "首页",
+                "iconPath": "assets/home.png",
+                "selectedIconPath": "assets/home-active.png"
+            },
+            {
+                "pagePath": "pages/list/list",
+                "text": "列表",
+                "iconPath": "assets/list.png",
+                "selectedIconPath": "assets/list-active.png"
+            }
+        ]
+    }
+}
