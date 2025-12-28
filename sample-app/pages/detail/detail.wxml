@@ -1,37 +1,128 @@
-<view class="container">
-  <view class="section">
-    <text class="section-title">图片 Image</text>
-    <view class="row">
-      <image class="image-box" src="demo.png" mode="aspectFit"></image>
-      <image class="image-box" src="demo2.png" mode="aspectFill"></image>
-    </view>
+<view class="page">
+  <!-- 页面标题 -->
+  <view class="page-header">
+    <text class="page-title">更多组件</text>
+    <text class="page-desc">More Components</text>
   </view>
 
+  <!-- 文本样式展示 -->
   <view class="section">
-    <text class="section-title">多行输入 Textarea</text>
-    <textarea class="textarea-box" placeholder="请输入多行文本"></textarea>
-  </view>
-
-  <view class="section">
-    <text class="section-title">文本样式 Text</text>
-    <text>普通文本内容</text>
-    <text>这是一段较长的文本内容，用于展示文本组件的显示效果</text>
-  </view>
-
-  <view class="section">
-    <text class="section-title">组合示例</text>
-    <view class="row">
-      <icon type="success" size="20"></icon>
-      <text>操作成功</text>
-    </view>
-    <view class="row">
-      <icon type="warn" size="20"></icon>
-      <text>请注意</text>
-    </view>
-    <view class="row">
+    <view class="section-header">
       <icon type="info" size="20"></icon>
-      <text>提示信息</text>
+      <text class="section-title">文本 Text</text>
     </view>
-    <button type="primary" bindtap="onSubmit">提交</button>
+    <view class="text-demo">
+      <text class="text-large">大号标题文字</text>
+      <text class="text-normal">这是一段普通的正文内容，用于展示文本组件的基本显示效果。</text>
+      <text class="text-small">小号辅助说明文字 - Small Text</text>
+      <text class="text-primary">主题色文字 Primary Color</text>
+      <text class="text-success">成功状态文字 Success</text>
+      <text class="text-warning">警告状态文字 Warning</text>
+      <text class="text-danger">危险状态文字 Danger</text>
+    </view>
   </view>
+
+  <!-- 状态提示 -->
+  <view class="section">
+    <view class="section-header">
+      <icon type="success" size="20"></icon>
+      <text class="section-title">状态提示</text>
+    </view>
+    <view class="status-list">
+      <view class="status-item status-success">
+        <icon type="success" size="24"></icon>
+        <view class="status-content">
+          <text class="status-title">操作成功</text>
+          <text class="status-desc">您的订单已提交成功</text>
+        </view>
+      </view>
+      <view class="status-item status-info">
+        <icon type="info" size="24"></icon>
+        <view class="status-content">
+          <text class="status-title">温馨提示</text>
+          <text class="status-desc">请在30分钟内完成支付</text>
+        </view>
+      </view>
+      <view class="status-item status-warning">
+        <icon type="warn" size="24"></icon>
+        <view class="status-content">
+          <text class="status-title">注意事项</text>
+          <text class="status-desc">该操作不可撤销，请谨慎操作</text>
+        </view>
+      </view>
+      <view class="status-item status-error">
+        <icon type="cancel" size="24"></icon>
+        <view class="status-content">
+          <text class="status-title">操作失败</text>
+          <text class="status-desc">网络异常，请稍后重试</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 卡片列表 -->
+  <view class="section">
+    <view class="section-header">
+      <icon type="download" size="20"></icon>
+      <text class="section-title">卡片列表</text>
+    </view>
+    <view class="card-list">
+      <view class="card" bindtap="onCardTap" data-id="1">
+        <view class="card-icon card-icon-blue">
+          <icon type="success" size="28"></icon>
+        </view>
+        <view class="card-body">
+          <text class="card-title">功能模块一</text>
+          <text class="card-desc">这是功能模块的描述信息</text>
+        </view>
+        <view class="card-arrow">
+          <text class="arrow-text">›</text>
+        </view>
+      </view>
+      <view class="card" bindtap="onCardTap" data-id="2">
+        <view class="card-icon card-icon-green">
+          <icon type="info" size="28"></icon>
+        </view>
+        <view class="card-body">
+          <text class="card-title">功能模块二</text>
+          <text class="card-desc">点击查看更多详情</text>
+        </view>
+        <view class="card-arrow">
+          <text class="arrow-text">›</text>
+        </view>
+      </view>
+      <view class="card" bindtap="onCardTap" data-id="3">
+        <view class="card-icon card-icon-orange">
+          <icon type="waiting" size="28"></icon>
+        </view>
+        <view class="card-body">
+          <text class="card-title">功能模块三</text>
+          <text class="card-desc">正在开发中，敬请期待</text>
+        </view>
+        <view class="card-arrow">
+          <text class="arrow-text">›</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 操作按钮组 -->
+  <view class="section">
+    <view class="section-header">
+      <icon type="success_no_circle" size="20"></icon>
+      <text class="section-title">操作区域</text>
+    </view>
+    <view class="action-group">
+      <button type="primary" bindtap="onSubmit">确认提交</button>
+      <button type="default" bindtap="onCancel">取消操作</button>
+    </view>
+    <view class="action-row">
+      <button type="primary" size="mini" plain="true" bindtap="onSave">保存</button>
+      <button type="default" size="mini" plain="true" bindtap="onShare">分享</button>
+      <button type="warn" size="mini" plain="true" bindtap="onDelete">删除</button>
+    </view>
+  </view>
+
+  <!-- 底部间距 -->
+  <view class="bottom-space"></view>
 </view>

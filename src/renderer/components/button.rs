@@ -119,24 +119,55 @@ impl ButtonComponent {
         h: f32, 
         sf: f32
     ) {
+        Self::draw_with_state(node, canvas, text_renderer, x, y, w, h, sf, false);
+    }
+    
+    pub fn draw_with_state(
+        node: &RenderNode, 
+        canvas: &mut Canvas, 
+        text_renderer: Option<&TextRenderer>,
+        x: f32, 
+        y: f32, 
+        w: f32, 
+        h: f32, 
+        sf: f32,
+        pressed: bool,
+    ) {
         let style = &node.style;
+        let disabled = node.attrs.get("disabled")
+            .map(|s| s == "true" || s == "{{true}}")
+            .unwrap_or(false);
+        
+        // 获取背景色，按下时变暗
+        let bg = if let Some(bg) = style.background_color {
+            if pressed && !disabled {
+                Self::darken_color(bg, 0.1)
+            } else {
+                bg
+            }
+        } else {
+            Color::WHITE
+        };
         
         // 绘制背景
-        if let Some(bg) = style.background_color {
-            let paint = Paint::new().with_color(bg).with_style(PaintStyle::Fill);
-            if style.border_radius > 0.0 {
-                let mut path = Path::new();
-                path.add_round_rect(x, y, w, h, style.border_radius);
-                canvas.draw_path(&path, &paint);
-            } else {
-                canvas.draw_rect(&GeoRect::new(x, y, w, h), &paint);
-            }
+        let paint = Paint::new().with_color(bg).with_style(PaintStyle::Fill);
+        if style.border_radius > 0.0 {
+            let mut path = Path::new();
+            path.add_round_rect(x, y, w, h, style.border_radius);
+            canvas.draw_path(&path, &paint);
+        } else {
+            canvas.draw_rect(&GeoRect::new(x, y, w, h), &paint);
         }
         
         // 绘制边框
         if style.border_width > 0.0 {
             if let Some(bc) = style.border_color {
-                let paint = Paint::new().with_color(bc).with_style(PaintStyle::Stroke);
+                let border_color = if pressed && !disabled {
+                    Self::darken_color(bc, 0.1)
+                } else {
+                    bc
+                };
+                let paint = Paint::new().with_color(border_color).with_style(PaintStyle::Stroke);
                 if style.border_radius > 0.0 {
                     let mut path = Path::new();
                     path.add_round_rect(x, y, w, h, style.border_radius);
@@ -144,6 +175,20 @@ impl ButtonComponent {
                 } else {
                     canvas.draw_rect(&GeoRect::new(x, y, w, h), &paint);
                 }
+            }
+        }
+        
+        // 按下时绘制半透明遮罩
+        if pressed && !disabled {
+            let overlay = Paint::new()
+                .with_color(Color::new(0, 0, 0, 25))
+                .with_style(PaintStyle::Fill);
+            if style.border_radius > 0.0 {
+                let mut path = Path::new();
+                path.add_round_rect(x, y, w, h, style.border_radius);
+                canvas.draw_path(&path, &overlay);
+            } else {
+                canvas.draw_rect(&GeoRect::new(x, y, w, h), &overlay);
             }
         }
         
@@ -157,5 +202,16 @@ impl ButtonComponent {
             let paint = Paint::new().with_color(color).with_style(PaintStyle::Fill);
             tr.draw_text(canvas, &node.text, tx, ty, size, &paint);
         }
+    }
+    
+    /// 使颜色变暗
+    fn darken_color(color: Color, amount: f32) -> Color {
+        let factor = 1.0 - amount;
+        Color::new(
+            (color.r as f32 * factor) as u8,
+            (color.g as f32 * factor) as u8,
+            (color.b as f32 * factor) as u8,
+            color.a,
+        )
     }
 }

@@ -31,9 +31,15 @@ impl InputComponent {
         let disabled = node.get_attr("disabled").map(|s| s == "true" || s == "{{true}}").unwrap_or(false);
         let is_textarea = node.tag_name == "textarea";
         
-        // 设置尺寸
-        if ts.size.width == Dimension::Auto {
+        // 设置尺寸 - 支持 flex 布局
+        // 如果 CSS 设置了 flex-grow，则不设置固定宽度
+        if ts.flex_grow == 0.0 && ts.size.width == Dimension::Auto {
+            // 没有设置 flex，也没有设置宽度，使用默认 100%
             ts.size.width = percent(1.0);
+        }
+        // 设置 flex-shrink 允许收缩
+        if ts.flex_shrink == 0.0 {
+            ts.flex_shrink = 1.0;
         }
         if ts.size.height == Dimension::Auto {
             ts.size.height = length(if is_textarea { 80.0 * sf } else { 42.0 * sf });
@@ -118,6 +124,22 @@ impl InputComponent {
         focused: bool,
         cursor_pos: usize,
     ) {
+        Self::draw_with_selection(node, canvas, text_renderer, x, y, w, h, sf, focused, cursor_pos, None);
+    }
+    
+    pub fn draw_with_selection(
+        node: &RenderNode, 
+        canvas: &mut Canvas, 
+        text_renderer: Option<&TextRenderer>,
+        x: f32, 
+        y: f32, 
+        w: f32, 
+        h: f32, 
+        sf: f32,
+        focused: bool,
+        cursor_pos: usize,
+        selection: Option<(usize, usize)>, // (start, end)
+    ) {
         let style = &node.style;
         
         // 绘制背景
@@ -154,18 +176,37 @@ impl InputComponent {
         let padding = 12.0 * sf;
         let font_size = style.font_size * sf;
         let text_y = y + (h + font_size) / 2.0 - 2.0 * sf;
+        let text_x = x + padding;
         
         if let Some(tr) = text_renderer {
+            // 绘制选中背景
+            if let Some((sel_start, sel_end)) = selection {
+                if sel_start != sel_end && focused {
+                    let start_text: String = node.text.chars().take(sel_start).collect();
+                    let sel_text: String = node.text.chars().skip(sel_start).take(sel_end - sel_start).collect();
+                    
+                    let sel_x = text_x + tr.measure_text(&start_text, font_size);
+                    let sel_w = tr.measure_text(&sel_text, font_size);
+                    let sel_y = y + (h - font_size) / 2.0 - 2.0 * sf;
+                    let sel_h = font_size + 4.0 * sf;
+                    
+                    let sel_paint = Paint::new()
+                        .with_color(Color::new(7, 193, 96, 80)) // 半透明绿色
+                        .with_style(PaintStyle::Fill);
+                    canvas.draw_rect(&GeoRect::new(sel_x, sel_y, sel_w, sel_h), &sel_paint);
+                }
+            }
+            
+            // 绘制文本
             let color = style.text_color.unwrap_or(Color::BLACK);
-            let text_x = x + padding;
             let paint = Paint::new().with_color(color).with_style(PaintStyle::Fill);
             
             if !node.text.is_empty() {
                 tr.draw_text(canvas, &node.text, text_x, text_y, font_size, &paint);
             }
             
-            // 绘制光标
-            if focused {
+            // 绘制光标（只在没有选中或选中范围为空时显示）
+            if focused && selection.map(|(s, e)| s == e).unwrap_or(true) {
                 let cursor_text: String = node.text.chars().take(cursor_pos).collect();
                 let cursor_x = text_x + tr.measure_text(&cursor_text, font_size);
                 let cursor_y1 = y + (h - font_size) / 2.0;

@@ -17,7 +17,59 @@ pub struct FocusedInput {
     pub id: String,
     pub value: String,
     pub cursor_pos: usize,
+    pub selection_start: Option<usize>, // 选择起始位置
+    pub selection_end: Option<usize>,   // 选择结束位置
     pub is_password: bool,
+    pub bounds: Rect, // 输入框位置
+}
+
+impl FocusedInput {
+    /// 是否有选中文本
+    pub fn has_selection(&self) -> bool {
+        self.selection_start.is_some() && self.selection_end.is_some()
+    }
+    
+    /// 获取选中范围 (start, end)，保证 start <= end
+    pub fn get_selection_range(&self) -> Option<(usize, usize)> {
+        match (self.selection_start, self.selection_end) {
+            (Some(s), Some(e)) if s != e => {
+                Some((s.min(e), s.max(e)))
+            }
+            _ => None
+        }
+    }
+    
+    /// 全选
+    pub fn select_all(&mut self) {
+        self.selection_start = Some(0);
+        self.selection_end = Some(self.value.chars().count());
+        self.cursor_pos = self.value.chars().count();
+    }
+    
+    /// 清除选择
+    pub fn clear_selection(&mut self) {
+        self.selection_start = None;
+        self.selection_end = None;
+    }
+    
+    /// 删除选中的文本，返回是否有删除
+    pub fn delete_selection(&mut self) -> bool {
+        if let Some((start, end)) = self.get_selection_range() {
+            let chars: Vec<char> = self.value.chars().collect();
+            let mut new_chars = Vec::new();
+            for (i, c) in chars.into_iter().enumerate() {
+                if i < start || i >= end {
+                    new_chars.push(c);
+                }
+            }
+            self.value = new_chars.into_iter().collect();
+            self.cursor_pos = start;
+            self.clear_selection();
+            true
+        } else {
+            false
+        }
+    }
 }
 
 /// 拖动中的滑块
@@ -37,6 +89,7 @@ pub enum InteractionType {
     Switch,
     Slider,
     Input,
+    Button,
 }
 
 /// 可交互组件信息
@@ -52,6 +105,21 @@ pub struct InteractiveElement {
     pub max: f32,
 }
 
+/// 按下的按钮
+#[derive(Clone, Debug)]
+pub struct PressedButton {
+    pub id: String,
+    pub bounds: Rect,
+}
+
+/// 点击动画状态
+#[derive(Clone, Debug)]
+pub struct ClickAnimation {
+    pub id: String,
+    pub start_time: std::time::Instant,
+    pub duration_ms: u64,
+}
+
 /// 交互管理器
 pub struct InteractionManager {
     /// 组件状态
@@ -60,6 +128,10 @@ pub struct InteractionManager {
     pub focused_input: Option<FocusedInput>,
     /// 拖动中的滑块
     pub dragging_slider: Option<DraggingSlider>,
+    /// 按下的按钮
+    pub pressed_button: Option<PressedButton>,
+    /// 点击动画
+    pub click_animations: Vec<ClickAnimation>,
     /// 当前页面的交互元素
     elements: Vec<InteractiveElement>,
 }
@@ -70,6 +142,8 @@ impl InteractionManager {
             states: HashMap::new(),
             focused_input: None,
             dragging_slider: None,
+            pressed_button: None,
+            click_animations: Vec::new(),
             elements: Vec::new(),
         }
     }
@@ -96,21 +170,6 @@ impl InteractionManager {
     
     /// 点击测试 - 返回点击到的交互元素
     pub fn hit_test(&self, x: f32, y: f32) -> Option<&InteractiveElement> {
-        // 调试：打印所有交互元素
-        if self.elements.is_empty() {
-            println!("⚠️ No interactive elements registered!");
-        }
-        
-        for e in &self.elements {
-            let hit = !e.disabled && 
-                x >= e.bounds.x && x <= e.bounds.x + e.bounds.width &&
-                y >= e.bounds.y && y <= e.bounds.y + e.bounds.height;
-            if hit {
-                println!("✅ Hit {:?} {} at ({:.1}, {:.1}, {:.1}, {:.1})", 
-                    e.interaction_type, e.id, e.bounds.x, e.bounds.y, e.bounds.width, e.bounds.height);
-            }
-        }
-        
         self.elements.iter().rev().find(|e| {
             !e.disabled && 
             x >= e.bounds.x && x <= e.bounds.x + e.bounds.width &&
@@ -140,6 +199,21 @@ impl InteractionManager {
                 })
             }
             InteractionType::Radio => {
+                // Radio 是互斥的，需要取消同一组内其他 radio 的选中状态
+                // 简单实现：取消所有其他 radio 的选中状态（假设页面上只有一组 radio）
+                // 更好的实现应该基于 radio-group 或父容器
+                let radio_ids: Vec<String> = self.elements.iter()
+                    .filter(|e| e.interaction_type == InteractionType::Radio && e.id != element.id)
+                    .map(|e| e.id.clone())
+                    .collect();
+                
+                for id in radio_ids {
+                    self.states.insert(id, ComponentState {
+                        checked: false,
+                        value: String::new(),
+                    });
+                }
+                
                 self.states.insert(element.id.clone(), ComponentState {
                     checked: true,
                     value: element.value.clone(),
@@ -172,18 +246,47 @@ impl InteractionManager {
                 })
             }
             InteractionType::Input => {
+                // 获取当前值（如果没有状态，使用空字符串而不是 element.value）
                 let current_value = self.states.get(&element.id)
                     .map(|s| s.value.clone())
-                    .unwrap_or(element.value.clone());
+                    .unwrap_or_else(|| {
+                        // 如果 element.value 是空的，说明没有初始值
+                        if element.value.is_empty() {
+                            String::new()
+                        } else {
+                            element.value.clone()
+                        }
+                    });
+                
+                // 初始化状态（如果还没有）
+                if !self.states.contains_key(&element.id) {
+                    self.states.insert(element.id.clone(), ComponentState {
+                        checked: false,
+                        value: current_value.clone(),
+                    });
+                }
                 
                 self.focused_input = Some(FocusedInput {
                     id: element.id.clone(),
                     value: current_value.clone(),
                     cursor_pos: current_value.chars().count(),
+                    selection_start: None,
+                    selection_end: None,
                     is_password: false,
+                    bounds: element.bounds,
                 });
                 
-                Some(InteractionResult::Focus { id: element.id })
+                Some(InteractionResult::Focus { 
+                    id: element.id,
+                    bounds: element.bounds,
+                })
+            }
+            InteractionType::Button => {
+                // 按钮点击不需要在这里触发动画，按下状态由鼠标按下/松开控制
+                Some(InteractionResult::ButtonClick {
+                    id: element.id,
+                    bounds: element.bounds,
+                })
             }
         }
     }
@@ -221,6 +324,9 @@ impl InteractionManager {
         
         match key {
             KeyInput::Char(c) => {
+                // 如果有选中文本，先删除
+                input.delete_selection();
+                
                 let mut chars: Vec<char> = input.value.chars().collect();
                 chars.insert(input.cursor_pos, c);
                 input.value = chars.into_iter().collect();
@@ -238,6 +344,18 @@ impl InteractionManager {
                 })
             }
             KeyInput::Backspace => {
+                // 如果有选中文本，删除选中部分
+                if input.delete_selection() {
+                    self.states.insert(input.id.clone(), ComponentState {
+                        checked: false,
+                        value: input.value.clone(),
+                    });
+                    return Some(InteractionResult::InputChange {
+                        id: input.id.clone(),
+                        value: input.value.clone(),
+                    });
+                }
+                
                 if input.cursor_pos > 0 {
                     let mut chars: Vec<char> = input.value.chars().collect();
                     chars.remove(input.cursor_pos - 1);
@@ -258,6 +376,18 @@ impl InteractionManager {
                 }
             }
             KeyInput::Delete => {
+                // 如果有选中文本，删除选中部分
+                if input.delete_selection() {
+                    self.states.insert(input.id.clone(), ComponentState {
+                        checked: false,
+                        value: input.value.clone(),
+                    });
+                    return Some(InteractionResult::InputChange {
+                        id: input.id.clone(),
+                        value: input.value.clone(),
+                    });
+                }
+                
                 let chars: Vec<char> = input.value.chars().collect();
                 if input.cursor_pos < chars.len() {
                     let mut chars = chars;
@@ -278,23 +408,123 @@ impl InteractionManager {
                 }
             }
             KeyInput::Left => {
+                input.clear_selection();
                 if input.cursor_pos > 0 {
                     input.cursor_pos -= 1;
                 }
                 None
             }
             KeyInput::Right => {
+                input.clear_selection();
                 if input.cursor_pos < input.value.chars().count() {
                     input.cursor_pos += 1;
                 }
                 None
             }
             KeyInput::Home => {
+                input.clear_selection();
                 input.cursor_pos = 0;
                 None
             }
             KeyInput::End => {
+                input.clear_selection();
                 input.cursor_pos = input.value.chars().count();
+                None
+            }
+            KeyInput::SelectAll => {
+                input.select_all();
+                None
+            }
+            KeyInput::Copy => {
+                // 返回选中的文本用于复制
+                if let Some((start, end)) = input.get_selection_range() {
+                    let selected: String = input.value.chars().skip(start).take(end - start).collect();
+                    return Some(InteractionResult::CopyText { text: selected });
+                }
+                None
+            }
+            KeyInput::Cut => {
+                // 剪切：复制并删除
+                if let Some((start, end)) = input.get_selection_range() {
+                    let selected: String = input.value.chars().skip(start).take(end - start).collect();
+                    input.delete_selection();
+                    
+                    self.states.insert(input.id.clone(), ComponentState {
+                        checked: false,
+                        value: input.value.clone(),
+                    });
+                    
+                    return Some(InteractionResult::CutText { 
+                        text: selected,
+                        id: input.id.clone(),
+                        value: input.value.clone(),
+                    });
+                }
+                None
+            }
+            KeyInput::Paste(text) => {
+                // 如果有选中文本，先删除
+                input.delete_selection();
+                
+                // 插入粘贴的文本
+                let mut chars: Vec<char> = input.value.chars().collect();
+                for (i, c) in text.chars().enumerate() {
+                    chars.insert(input.cursor_pos + i, c);
+                }
+                input.value = chars.into_iter().collect();
+                input.cursor_pos += text.chars().count();
+                
+                self.states.insert(input.id.clone(), ComponentState {
+                    checked: false,
+                    value: input.value.clone(),
+                });
+                
+                Some(InteractionResult::InputChange {
+                    id: input.id.clone(),
+                    value: input.value.clone(),
+                })
+            }
+            KeyInput::ShiftLeft => {
+                // 扩展选择向左
+                if input.selection_start.is_none() {
+                    input.selection_start = Some(input.cursor_pos);
+                    input.selection_end = Some(input.cursor_pos);
+                }
+                if input.cursor_pos > 0 {
+                    input.cursor_pos -= 1;
+                    input.selection_end = Some(input.cursor_pos);
+                }
+                None
+            }
+            KeyInput::ShiftRight => {
+                // 扩展选择向右
+                if input.selection_start.is_none() {
+                    input.selection_start = Some(input.cursor_pos);
+                    input.selection_end = Some(input.cursor_pos);
+                }
+                if input.cursor_pos < input.value.chars().count() {
+                    input.cursor_pos += 1;
+                    input.selection_end = Some(input.cursor_pos);
+                }
+                None
+            }
+            KeyInput::ShiftHome => {
+                // 选择到开头
+                if input.selection_start.is_none() {
+                    input.selection_start = Some(input.cursor_pos);
+                }
+                input.cursor_pos = 0;
+                input.selection_end = Some(0);
+                None
+            }
+            KeyInput::ShiftEnd => {
+                // 选择到结尾
+                if input.selection_start.is_none() {
+                    input.selection_start = Some(input.cursor_pos);
+                }
+                let len = input.value.chars().count();
+                input.cursor_pos = len;
+                input.selection_end = Some(len);
                 None
             }
             KeyInput::Enter | KeyInput::Escape => {
@@ -332,7 +562,58 @@ impl InteractionManager {
         self.states.clear();
         self.focused_input = None;
         self.dragging_slider = None;
+        self.pressed_button = None;
+        self.click_animations.clear();
         self.elements.clear();
+    }
+    
+    /// 设置按钮按下状态
+    pub fn set_button_pressed(&mut self, id: String, bounds: Rect) {
+        self.pressed_button = Some(PressedButton { id, bounds });
+    }
+    
+    /// 清除按钮按下状态
+    pub fn clear_button_pressed(&mut self) {
+        self.pressed_button = None;
+    }
+    
+    /// 检查按钮是否被按下
+    pub fn is_button_pressed(&self, id: &str) -> bool {
+        self.pressed_button.as_ref().map(|b| b.id == id).unwrap_or(false)
+    }
+    
+    /// 触发点击动画
+    pub fn trigger_click_animation(&mut self, id: String) {
+        // 移除该 id 的旧动画
+        self.click_animations.retain(|a| a.id != id);
+        // 添加新动画
+        self.click_animations.push(ClickAnimation {
+            id,
+            start_time: std::time::Instant::now(),
+            duration_ms: 150, // 150ms 动画
+        });
+    }
+    
+    /// 更新动画状态，返回是否还有动画在进行
+    pub fn update_animations(&mut self) -> bool {
+        let now = std::time::Instant::now();
+        self.click_animations.retain(|a| {
+            now.duration_since(a.start_time).as_millis() < a.duration_ms as u128
+        });
+        !self.click_animations.is_empty()
+    }
+    
+    /// 检查按钮是否在点击动画中
+    pub fn is_in_click_animation(&self, id: &str) -> bool {
+        let now = std::time::Instant::now();
+        self.click_animations.iter().any(|a| {
+            a.id == id && now.duration_since(a.start_time).as_millis() < a.duration_ms as u128
+        })
+    }
+    
+    /// 是否有动画在进行
+    pub fn has_animations(&self) -> bool {
+        !self.click_animations.is_empty()
     }
 }
 
@@ -348,6 +629,14 @@ pub enum KeyInput {
     End,
     Enter,
     Escape,
+    SelectAll,      // Ctrl+A
+    Copy,           // Ctrl+C
+    Cut,            // Ctrl+X
+    Paste(String),  // Ctrl+V
+    ShiftLeft,      // Shift+Left (扩展选择)
+    ShiftRight,     // Shift+Right
+    ShiftHome,      // Shift+Home
+    ShiftEnd,       // Shift+End
 }
 
 /// 交互结果
@@ -357,7 +646,10 @@ pub enum InteractionResult {
     Select { id: String, value: String },
     SliderChange { id: String, value: i32 },
     SliderEnd { id: String },
-    Focus { id: String },
+    Focus { id: String, bounds: Rect },
     InputChange { id: String, value: String },
     InputBlur { id: String, value: String },
+    ButtonClick { id: String, bounds: Rect },
+    CopyText { text: String },
+    CutText { text: String, id: String, value: String },
 }

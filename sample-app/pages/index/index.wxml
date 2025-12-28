@@ -1,46 +1,126 @@
-<view class="container">
-  <view class="section">
-    <text class="section-title">按钮 Button</text>
-    <button type="primary">主要按钮</button>
-    <button type="default">默认按钮</button>
-    <button type="warn">警告按钮</button>
-    <view class="row">
-      <button type="primary" size="mini">小按钮</button>
-      <button type="default" size="mini">小按钮</button>
-      <button type="warn" size="mini">小按钮</button>
-    </view>
-    <button type="primary" plain="true">镂空主要</button>
-    <button type="default" disabled="true">禁用按钮</button>
-  </view>
-
-  <view class="section">
-    <text class="section-title">图标 Icon</text>
-    <view class="row">
-      <icon type="success" size="30"></icon>
-      <icon type="success_no_circle" size="30"></icon>
-      <icon type="info" size="30"></icon>
-      <icon type="warn" size="30"></icon>
-      <icon type="waiting" size="30"></icon>
-      <icon type="cancel" size="30"></icon>
-      <icon type="download" size="30"></icon>
-      <icon type="search" size="30"></icon>
+<view class="page">
+  <!-- 顶部 Banner -->
+  <view class="banner">
+    <view class="banner-content">
+      <text class="banner-title">Mini Render</text>
+      <text class="banner-subtitle">轻量级小程序渲染引擎</text>
     </view>
   </view>
 
+  <!-- 按钮组件 -->
   <view class="section">
-    <text class="section-title">进度条 Progress</text>
-    <progress percent="20" stroke-width="3"></progress>
-    <progress percent="50" activeColor="#FF6B6B" show-info="true"></progress>
-    <progress percent="80" activeColor="#4ECDC4" stroke-width="8"></progress>
-  </view>
-
-  <view class="section">
-    <text class="section-title">开关 Switch</text>
-    <view class="row">
-      <switch checked="true"></switch>
-      <switch></switch>
-      <switch type="checkbox" checked="true"></switch>
-      <switch type="checkbox"></switch>
+    <view class="section-header">
+      <icon type="success" size="20"></icon>
+      <text class="section-title">按钮 Button</text>
+    </view>
+    <view class="button-group">
+      <button type="primary" bindtap="onPrimaryTap">主要按钮</button>
+      <button type="default" bindtap="onDefaultTap">默认按钮</button>
+      <button type="warn" bindtap="onWarnTap">警告按钮</button>
+    </view>
+    <view class="button-row">
+      <button type="primary" size="mini">迷你</button>
+      <button type="default" size="mini">迷你</button>
+      <button type="warn" size="mini">迷你</button>
+    </view>
+    <view class="button-group">
+      <button type="primary" plain="true">镂空按钮</button>
+      <button type="default" disabled="true">禁用状态</button>
     </view>
   </view>
+
+  <!-- 图标组件 -->
+  <view class="section">
+    <view class="section-header">
+      <icon type="info" size="20"></icon>
+      <text class="section-title">图标 Icon</text>
+    </view>
+    <view class="icon-grid">
+      <view class="icon-item">
+        <icon type="success" size="32"></icon>
+        <text class="icon-label">success</text>
+      </view>
+      <view class="icon-item">
+        <icon type="success_no_circle" size="32"></icon>
+        <text class="icon-label">勾选</text>
+      </view>
+      <view class="icon-item">
+        <icon type="info" size="32"></icon>
+        <text class="icon-label">info</text>
+      </view>
+      <view class="icon-item">
+        <icon type="warn" size="32"></icon>
+        <text class="icon-label">warn</text>
+      </view>
+      <view class="icon-item">
+        <icon type="waiting" size="32"></icon>
+        <text class="icon-label">waiting</text>
+      </view>
+      <view class="icon-item">
+        <icon type="cancel" size="32"></icon>
+        <text class="icon-label">cancel</text>
+      </view>
+      <view class="icon-item">
+        <icon type="download" size="32"></icon>
+        <text class="icon-label">download</text>
+      </view>
+      <view class="icon-item">
+        <icon type="search" size="32"></icon>
+        <text class="icon-label">search</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 进度条组件 -->
+  <view class="section">
+    <view class="section-header">
+      <icon type="waiting" size="20"></icon>
+      <text class="section-title">进度条 Progress</text>
+    </view>
+    <view class="progress-item">
+      <text class="progress-label">基础进度</text>
+      <progress percent="30" stroke-width="4"></progress>
+    </view>
+    <view class="progress-item">
+      <text class="progress-label">显示百分比</text>
+      <progress percent="50" show-info="true" activeColor="#07C160"></progress>
+    </view>
+    <view class="progress-item">
+      <text class="progress-label">自定义颜色</text>
+      <progress percent="70" activeColor="#FF6B6B" stroke-width="6"></progress>
+    </view>
+    <view class="progress-item">
+      <text class="progress-label">粗进度条</text>
+      <progress percent="90" activeColor="#4ECDC4" stroke-width="10"></progress>
+    </view>
+  </view>
+
+  <!-- 开关组件 -->
+  <view class="section">
+    <view class="section-header">
+      <icon type="success_no_circle" size="20"></icon>
+      <text class="section-title">开关 Switch</text>
+    </view>
+    <view class="switch-list">
+      <view class="switch-item">
+        <text class="switch-label">开关样式（开）</text>
+        <switch checked="true" color="#07C160"></switch>
+      </view>
+      <view class="switch-item">
+        <text class="switch-label">开关样式（关）</text>
+        <switch></switch>
+      </view>
+      <view class="switch-item">
+        <text class="switch-label">复选框样式（选中）</text>
+        <switch type="checkbox" checked="true" color="#07C160"></switch>
+      </view>
+      <view class="switch-item">
+        <text class="switch-label">复选框样式（未选）</text>
+        <switch type="checkbox"></switch>
+      </view>
+    </view>
+  </view>
+
+  <!-- 底部间距 -->
+  <view class="bottom-space"></view>
 </view>

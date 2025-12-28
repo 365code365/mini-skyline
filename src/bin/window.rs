@@ -282,6 +282,10 @@ struct MiniAppWindow {
     pending_navigation: Option<NavigationRequest>,
     // 交互管理器
     interaction: InteractionManager,
+    // 键盘修饰键状态
+    modifiers: winit::keyboard::ModifiersState,
+    // 跨平台剪贴板
+    clipboard: Option<arboard::Clipboard>,
 }
 
 #[derive(Clone)]
@@ -353,6 +357,13 @@ impl MiniAppWindow {
             .unwrap_or(false);
         
         let now = Instant::now();
+        
+        // 初始化跨平台剪贴板
+        let clipboard = arboard::Clipboard::new().ok();
+        if clipboard.is_some() {
+            println!("📋 Clipboard initialized");
+        }
+        
         let mut window = Self {
             window: None,
             surface: None,
@@ -379,6 +390,8 @@ impl MiniAppWindow {
             click_start_time: now,
             pending_navigation: None,
             interaction: InteractionManager::new(),
+            modifiers: winit::keyboard::ModifiersState::empty(),
+            clipboard,
         };
         
         // 加载首页
@@ -538,6 +551,8 @@ impl MiniAppWindow {
         
         // 清空页面栈，只保留目标页面
         self.page_stack.clear();
+        // 清除交互状态
+        self.interaction.clear_page_state();
         self.navigate_to(path, HashMap::new())
     }
     
@@ -817,17 +832,29 @@ impl MiniAppWindow {
             // 内容区域点击
             let actual_y = y + self.scroll.get_position();
             
-            // 调试：打印点击位置
-            println!("🖱️ Click at ({:.1}, {:.1}) actual_y={:.1}", x, y, actual_y);
-            
-            // 使用交互管理器处理点击
+            // 使用交互管理器处理点击（按钮点击也在这里处理）
             if let Some(result) = self.interaction.handle_click(x, actual_y) {
-                self.handle_interaction_result(result);
+                self.handle_interaction_result(result.clone());
+                
+                // 如果是按钮点击，还需要检查事件绑定
+                if let InteractionResult::ButtonClick { id: _, bounds: _ } = &result {
+                    if let Some(renderer) = &self.renderer {
+                        if let Some(binding) = renderer.hit_test(x, actual_y) {
+                            println!("👆 {} -> {}", binding.event_type, binding.handler);
+                            let data_json = serde_json::to_string(&binding.data).unwrap_or("{}".to_string());
+                            let call_code = format!("__callPageMethod('{}', {})", binding.handler, data_json);
+                            self.app.eval(&call_code).ok();
+                            self.check_navigation();
+                            self.print_js_output();
+                        }
+                    }
+                }
+                
                 self.needs_redraw = true;
                 return;
             }
             
-            // 检查事件绑定
+            // 检查其他事件绑定
             if let Some(renderer) = &self.renderer {
                 if let Some(binding) = renderer.hit_test(x, actual_y) {
                     println!("👆 {} -> {}", binding.event_type, binding.handler);
@@ -857,14 +884,56 @@ impl MiniAppWindow {
             InteractionResult::SliderEnd { id } => {
                 println!("🎚️ Slider {} released", id);
             }
-            InteractionResult::Focus { id } => {
-                println!("📝 Focus: {}", id);
+            InteractionResult::Focus { id, bounds } => {
+                println!("📝 Focus: {} at ({:.0}, {:.0})", id, bounds.x, bounds.y);
+                // 启用 IME 并设置位置到输入框下方
+                if let Some(window) = &self.window {
+                    window.set_ime_allowed(true);
+                    // 计算物理像素位置（考虑滚动偏移）
+                    let sf = self.scale_factor;
+                    let scroll_offset = self.scroll.get_position();
+                    let ime_x = (bounds.x * sf as f32) as f64;
+                    let ime_y = ((bounds.y - scroll_offset + bounds.height + 5.0) * sf as f32) as f64;
+                    let ime_w = (bounds.width * sf as f32) as f64;
+                    let ime_h = (bounds.height * sf as f32) as f64;
+                    
+                    window.set_ime_cursor_area(
+                        winit::dpi::PhysicalPosition::new(ime_x, ime_y),
+                        winit::dpi::PhysicalSize::new(ime_w, ime_h),
+                    );
+                }
             }
             InteractionResult::InputChange { id, value } => {
                 println!("📝 Input {}: {}", id, value);
             }
             InteractionResult::InputBlur { id, value } => {
                 println!("📝 Blur {}: {}", id, value);
+            }
+            InteractionResult::ButtonClick { id, bounds: _ } => {
+                println!("🔘 Button clicked: {}", id);
+                if let Some(w) = &self.window { w.request_redraw(); }
+            }
+            InteractionResult::CopyText { text } => {
+                println!("📋 Copy: {}", text);
+                // 复制到系统剪贴板
+                if let Some(ref mut clipboard) = self.clipboard {
+                    if let Err(e) = clipboard.set_text(&text) {
+                        println!("❌ Clipboard copy failed: {}", e);
+                    } else {
+                        println!("✅ Copied to clipboard");
+                    }
+                }
+            }
+            InteractionResult::CutText { text, id, value } => {
+                println!("✂️ Cut from {}: {} (remaining: {})", id, text, value);
+                // 复制到系统剪贴板
+                if let Some(ref mut clipboard) = self.clipboard {
+                    if let Err(e) = clipboard.set_text(&text) {
+                        println!("❌ Clipboard cut failed: {}", e);
+                    } else {
+                        println!("✅ Cut to clipboard");
+                    }
+                }
             }
         }
     }
@@ -1010,6 +1079,10 @@ impl ApplicationHandler for MiniAppWindow {
                 .with_resizable(false);
             
             let window = Arc::new(event_loop.create_window(window_attrs).unwrap());
+            
+            // 启用 IME 输入（中文等）
+            window.set_ime_allowed(true);
+            
             let scale_factor = window.scale_factor();
             self.setup_canvas(scale_factor);
             self.update_renderers();
@@ -1031,9 +1104,17 @@ impl ApplicationHandler for MiniAppWindow {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             
+            WindowEvent::ModifiersChanged(new_modifiers) => {
+                self.modifiers = new_modifiers.state();
+            }
+            
             WindowEvent::KeyboardInput { event, .. } => {
-                use winit::keyboard::{PhysicalKey, KeyCode};
+                use winit::keyboard::{PhysicalKey, KeyCode, ModifiersState};
                 if event.state == ElementState::Pressed {
+                    // 获取修饰键状态
+                    let ctrl = self.modifiers.contains(ModifiersState::CONTROL) || self.modifiers.contains(ModifiersState::SUPER);
+                    let shift = self.modifiers.contains(ModifiersState::SHIFT);
+                    
                     // 处理输入框文本输入
                     if self.interaction.has_focused_input() {
                         let mut handled = true;
@@ -1041,12 +1122,26 @@ impl ApplicationHandler for MiniAppWindow {
                             match code {
                                 KeyCode::Backspace => Some(KeyInput::Backspace),
                                 KeyCode::Delete => Some(KeyInput::Delete),
+                                KeyCode::ArrowLeft if shift => Some(KeyInput::ShiftLeft),
+                                KeyCode::ArrowRight if shift => Some(KeyInput::ShiftRight),
                                 KeyCode::ArrowLeft => Some(KeyInput::Left),
                                 KeyCode::ArrowRight => Some(KeyInput::Right),
+                                KeyCode::Home if shift => Some(KeyInput::ShiftHome),
+                                KeyCode::End if shift => Some(KeyInput::ShiftEnd),
                                 KeyCode::Home => Some(KeyInput::Home),
                                 KeyCode::End => Some(KeyInput::End),
                                 KeyCode::Enter => Some(KeyInput::Enter),
                                 KeyCode::Escape => Some(KeyInput::Escape),
+                                KeyCode::KeyA if ctrl => Some(KeyInput::SelectAll),
+                                KeyCode::KeyC if ctrl => Some(KeyInput::Copy),
+                                KeyCode::KeyX if ctrl => Some(KeyInput::Cut),
+                                KeyCode::KeyV if ctrl => {
+                                    // 从剪贴板获取文本
+                                    let text = self.clipboard.as_mut()
+                                        .and_then(|cb| cb.get_text().ok())
+                                        .unwrap_or_default();
+                                    Some(KeyInput::Paste(text))
+                                }
                                 _ => { handled = false; None }
                             }
                         } else {
@@ -1061,15 +1156,17 @@ impl ApplicationHandler for MiniAppWindow {
                             handled = true;
                         }
                         
-                        // 处理文本输入（包括 ASCII 字符）
-                        if let Some(ref text) = event.text {
-                            for c in text.chars() {
-                                if c.is_control() { continue; }
-                                if let Some(result) = self.interaction.handle_key_input(KeyInput::Char(c)) {
-                                    self.handle_interaction_result(result);
+                        // 处理文本输入（包括 ASCII 字符）- 但不处理 Ctrl 组合键
+                        if !ctrl {
+                            if let Some(ref text) = event.text {
+                                for c in text.chars() {
+                                    if c.is_control() { continue; }
+                                    if let Some(result) = self.interaction.handle_key_input(KeyInput::Char(c)) {
+                                        self.handle_interaction_result(result);
+                                    }
                                 }
+                                handled = true;
                             }
-                            handled = true;
                         }
                         
                         if handled {
@@ -1181,16 +1278,31 @@ impl ApplicationHandler for MiniAppWindow {
                         let y = self.mouse_pos.1;
                         let actual_y = y + self.scroll.get_position();
                         
-                        // 检查是否点击了滑块，如果是则立即开始拖动
+                        // 检查是否点击了交互元素
                         if let Some(element) = self.interaction.hit_test(x, actual_y) {
-                            if element.interaction_type == mini_render::ui::interaction::InteractionType::Slider && !element.disabled {
-                                // 开始滑块拖动
-                                if let Some(result) = self.interaction.handle_click(x, actual_y) {
-                                    self.handle_interaction_result(result);
-                                    self.needs_redraw = true;
-                                    if let Some(w) = &self.window { w.request_redraw(); }
+                            let element = element.clone();
+                            
+                            match element.interaction_type {
+                                mini_render::ui::interaction::InteractionType::Slider => {
+                                    // 开始滑块拖动
+                                    if !element.disabled {
+                                        if let Some(result) = self.interaction.handle_click(x, actual_y) {
+                                            self.handle_interaction_result(result);
+                                            self.needs_redraw = true;
+                                            if let Some(w) = &self.window { w.request_redraw(); }
+                                        }
+                                    }
+                                    return;
                                 }
-                                return;
+                                mini_render::ui::interaction::InteractionType::Button => {
+                                    // 设置按钮按下状态
+                                    if !element.disabled {
+                                        self.interaction.set_button_pressed(element.id.clone(), element.bounds);
+                                        self.needs_redraw = true;
+                                        if let Some(w) = &self.window { w.request_redraw(); }
+                                    }
+                                }
+                                _ => {}
                             }
                         }
                         
@@ -1200,6 +1312,9 @@ impl ApplicationHandler for MiniAppWindow {
                         }
                     }
                     ElementState::Released => {
+                        // 清除按钮按下状态
+                        self.interaction.clear_button_pressed();
+                        
                         // 结束滑块拖动
                         if let Some(result) = self.interaction.handle_mouse_release() {
                             self.handle_interaction_result(result);
@@ -1228,11 +1343,14 @@ impl ApplicationHandler for MiniAppWindow {
             WindowEvent::RedrawRequested => {
                 self.update_scroll();
                 self.process_navigation();
+                
                 if self.needs_redraw {
                     self.render();
                     self.needs_redraw = false;
                 }
                 self.present();
+                
+                // 如果有滚动动画，继续请求重绘
                 if self.scroll.is_animating() || self.scroll.is_dragging {
                     if let Some(window) = &self.window { window.request_redraw(); }
                 }

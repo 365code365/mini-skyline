@@ -268,9 +268,21 @@ impl WxmlRenderer {
                     }
                 }
                 "input" | "textarea" => {
-                    node_to_draw.text = state.value.clone();
-                    // 如果有值，更新文本颜色为黑色
-                    if !state.value.is_empty() {
+                    // 获取 placeholder
+                    let placeholder = node.attrs.get("placeholder").cloned().unwrap_or_default();
+                    
+                    // 检查是否聚焦
+                    let is_focused = interaction.focused_input.as_ref()
+                        .map(|f| f.id == component_id)
+                        .unwrap_or(false);
+                    
+                    if state.value.is_empty() && !is_focused {
+                        // 没有输入值且未聚焦时显示 placeholder
+                        node_to_draw.text = placeholder;
+                        node_to_draw.style.text_color = Some(Color::from_hex(0xBFBFBF));
+                    } else {
+                        // 有输入值或聚焦时显示实际值（聚焦时即使为空也不显示 placeholder）
+                        node_to_draw.text = state.value.clone();
                         node_to_draw.style.text_color = Some(Color::BLACK);
                     }
                 }
@@ -278,20 +290,28 @@ impl WxmlRenderer {
             }
         }
         
-        // 绘制组件 - 特殊处理 input 组件的光标
+        // 绘制组件 - 特殊处理 input 和 button 组件
         match node.tag.as_str() {
             "input" | "textarea" => {
                 let focused = interaction.focused_input.as_ref()
                     .map(|f| f.id == component_id)
                     .unwrap_or(false);
-                let cursor_pos = if focused {
-                    interaction.focused_input.as_ref().map(|f| f.cursor_pos).unwrap_or(0)
+                let (cursor_pos, selection) = if focused {
+                    let f = interaction.focused_input.as_ref().unwrap();
+                    (f.cursor_pos, f.get_selection_range())
                 } else {
-                    0
+                    (0, None)
                 };
-                InputComponent::draw_with_cursor(
+                InputComponent::draw_with_selection(
                     &node_to_draw, canvas, self.text_renderer.as_ref(), 
-                    x, y, w, h, sf, focused, cursor_pos
+                    x, y, w, h, sf, focused, cursor_pos, selection
+                );
+            }
+            "button" => {
+                let pressed = interaction.is_button_pressed(&component_id);
+                ButtonComponent::draw_with_state(
+                    &node_to_draw, canvas, self.text_renderer.as_ref(),
+                    x, y, w, h, sf, pressed
                 );
             }
             _ => {
@@ -385,8 +405,20 @@ impl WxmlRenderer {
                     }
                 }
                 "input" | "textarea" => {
-                    node_to_draw.text = state.value.clone();
-                    if !state.value.is_empty() {
+                    let placeholder = node.attrs.get("placeholder").cloned().unwrap_or_default();
+                    
+                    // 检查是否聚焦
+                    let is_focused = interaction.focused_input.as_ref()
+                        .map(|f| f.id == component_id)
+                        .unwrap_or(false);
+                    
+                    if state.value.is_empty() && !is_focused {
+                        // 没有输入值且未聚焦时显示 placeholder
+                        node_to_draw.text = placeholder;
+                        node_to_draw.style.text_color = Some(Color::from_hex(0xBFBFBF));
+                    } else {
+                        // 有输入值或聚焦时显示实际值
+                        node_to_draw.text = state.value.clone();
                         node_to_draw.style.text_color = Some(Color::BLACK);
                     }
                 }
@@ -394,20 +426,28 @@ impl WxmlRenderer {
             }
         }
 
-        // 绘制组件 - 特殊处理 input 组件的光标
+        // 绘制组件 - 特殊处理 input 和 button 组件
         match node.tag.as_str() {
             "input" | "textarea" => {
                 let focused = interaction.focused_input.as_ref()
                     .map(|f| f.id == component_id)
                     .unwrap_or(false);
-                let cursor_pos = if focused {
-                    interaction.focused_input.as_ref().map(|f| f.cursor_pos).unwrap_or(0)
+                let (cursor_pos, selection) = if focused {
+                    let f = interaction.focused_input.as_ref().unwrap();
+                    (f.cursor_pos, f.get_selection_range())
                 } else {
-                    0
+                    (0, None)
                 };
-                InputComponent::draw_with_cursor(
+                InputComponent::draw_with_selection(
                     &node_to_draw, canvas, self.text_renderer.as_ref(), 
-                    x, y, w, h, sf, focused, cursor_pos
+                    x, y, w, h, sf, focused, cursor_pos, selection
+                );
+            }
+            "button" => {
+                let pressed = interaction.is_button_pressed(&component_id);
+                ButtonComponent::draw_with_state(
+                    &node_to_draw, canvas, self.text_renderer.as_ref(),
+                    x, y, w, h, sf, pressed
                 );
             }
             _ => {
@@ -514,12 +554,31 @@ impl WxmlRenderer {
                 });
             }
             "input" | "textarea" => {
+                // 只使用原始 value 属性，不使用 placeholder
+                let actual_value = original_node.attrs.get("value").cloned().unwrap_or_default();
+                // 如果已有状态，使用状态中的值
+                let current_value = interaction.get_state(&id)
+                    .map(|s| s.value.clone())
+                    .unwrap_or(actual_value);
+                
                 interaction.register_element(InteractiveElement {
                     interaction_type: InteractionType::Input,
                     id,
                     bounds: *bounds,
                     checked: false,
-                    value: drawn_node.text.clone(),
+                    value: current_value,
+                    disabled,
+                    min: 0.0,
+                    max: 0.0,
+                });
+            }
+            "button" => {
+                interaction.register_element(InteractiveElement {
+                    interaction_type: InteractionType::Button,
+                    id,
+                    bounds: *bounds,
+                    checked: false,
+                    value: original_node.text.clone(),
                     disabled,
                     min: 0.0,
                     max: 0.0,

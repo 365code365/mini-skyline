@@ -1,48 +1,120 @@
-<view class="container">
+<view class="page">
+  <!-- 页面标题 -->
+  <view class="page-header">
+    <text class="page-title">表单组件</text>
+    <text class="page-desc">Form Components</text>
+  </view>
+
+  <!-- 输入框组件 -->
   <view class="section">
-    <text class="section-title">复选框 Checkbox</text>
-    <view class="row">
-      <checkbox checked="true" color="#07C160"></checkbox>
-      <text>已选中</text>
+    <view class="section-header">
+      <icon type="search" size="20"></icon>
+      <text class="section-title">输入框 Input</text>
     </view>
-    <view class="row">
-      <checkbox></checkbox>
-      <text>未选中</text>
-    </view>
-    <view class="row">
-      <checkbox checked="true" disabled="true"></checkbox>
-      <text>禁用已选</text>
+    <view class="input-group">
+      <view class="input-item">
+        <text class="input-label">用户名</text>
+        <input class="input-field" placeholder="请输入用户名"></input>
+      </view>
+      <view class="input-item">
+        <text class="input-label">密码</text>
+        <input class="input-field" password="true" placeholder="请输入密码"></input>
+      </view>
+      <view class="input-item">
+        <text class="input-label">手机号</text>
+        <input class="input-field" placeholder="请输入手机号" type="number"></input>
+      </view>
+      <view class="input-item">
+        <text class="input-label">禁用</text>
+        <input class="input-field input-disabled" disabled="true" placeholder="禁用状态"></input>
+      </view>
     </view>
   </view>
 
+  <!-- 复选框组件 -->
   <view class="section">
-    <text class="section-title">单选框 Radio</text>
-    <view class="row">
-      <radio checked="true" color="#07C160"></radio>
-      <text>选项一</text>
+    <view class="section-header">
+      <icon type="success_no_circle" size="20"></icon>
+      <text class="section-title">复选框 Checkbox</text>
     </view>
-    <view class="row">
-      <radio></radio>
-      <text>选项二</text>
-    </view>
-    <view class="row">
-      <radio disabled="true"></radio>
-      <text>禁用选项</text>
+    <view class="checkbox-group">
+      <view class="checkbox-item">
+        <checkbox checked="true" color="#07C160"></checkbox>
+        <text class="checkbox-label">苹果 Apple</text>
+      </view>
+      <view class="checkbox-item">
+        <checkbox checked="true" color="#07C160"></checkbox>
+        <text class="checkbox-label">香蕉 Banana</text>
+      </view>
+      <view class="checkbox-item">
+        <checkbox color="#07C160"></checkbox>
+        <text class="checkbox-label">橙子 Orange</text>
+      </view>
+      <view class="checkbox-item">
+        <checkbox disabled="true"></checkbox>
+        <text class="checkbox-label disabled">葡萄 Grape (禁用)</text>
+      </view>
     </view>
   </view>
 
+  <!-- 单选框组件 -->
   <view class="section">
-    <text class="section-title">滑块 Slider</text>
-    <slider value="30" show-value="true"></slider>
-    <slider value="60" activeColor="#FF6B6B" block-color="#FF6B6B"></slider>
-    <slider value="80" activeColor="#4ECDC4" block-size="20"></slider>
+    <view class="section-header">
+      <icon type="success" size="20"></icon>
+      <text class="section-title">单选框 Radio</text>
+    </view>
+    <view class="radio-group">
+      <view class="radio-item">
+        <radio checked="true" color="#07C160"></radio>
+        <text class="radio-label">男 Male</text>
+      </view>
+      <view class="radio-item">
+        <radio color="#07C160"></radio>
+        <text class="radio-label">女 Female</text>
+      </view>
+      <view class="radio-item">
+        <radio disabled="true"></radio>
+        <text class="radio-label disabled">保密 Secret (禁用)</text>
+      </view>
+    </view>
   </view>
 
+  <!-- 滑块组件 -->
   <view class="section">
-    <text class="section-title">输入框 Input</text>
-    <input placeholder="请输入内容"></input>
-    <input value="已有内容" placeholder="请输入"></input>
-    <input password="true" placeholder="请输入密码"></input>
-    <input disabled="true" placeholder="禁用输入框"></input>
+    <view class="section-header">
+      <icon type="waiting" size="20"></icon>
+      <text class="section-title">滑块 Slider</text>
+    </view>
+    <view class="slider-group">
+      <view class="slider-item">
+        <view class="slider-header">
+          <text class="slider-label">音量</text>
+          <text class="slider-value">50%</text>
+        </view>
+        <slider value="50" activeColor="#07C160" show-value="false"></slider>
+      </view>
+      <view class="slider-item">
+        <view class="slider-header">
+          <text class="slider-label">亮度</text>
+          <text class="slider-value">70%</text>
+        </view>
+        <slider value="70" activeColor="#FF9500" show-value="false"></slider>
+      </view>
+      <view class="slider-item">
+        <view class="slider-header">
+          <text class="slider-label">进度</text>
+        </view>
+        <slider value="30" activeColor="#007AFF" show-value="true"></slider>
+      </view>
+      <view class="slider-item">
+        <view class="slider-header">
+          <text class="slider-label">自定义滑块</text>
+        </view>
+        <slider value="60" activeColor="#FF6B6B" block-color="#FF6B6B" block-size="24"></slider>
+      </view>
+    </view>
   </view>
+
+  <!-- 底部间距 -->
+  <view class="bottom-space"></view>
 </view>

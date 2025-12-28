@@ -3,9 +3,10 @@
   display: flex;
   flex-direction: row;
   background-color: #ffffff;
-  padding: 8rpx 0 16rpx;
+  padding: 6rpx 0 12rpx;
   justify-content: space-around;
   align-items: center;
+  border-top: 1rpx solid #E5E5E5;
 }
 
 .tabbar-item {
@@ -13,21 +14,21 @@
   flex-direction: column;
   align-items: center;
   gap: 4rpx;
-  padding: 0 40rpx;
+  padding: 0 24rpx;
 }
 
 .tabbar-icon {
-  background-color: #f0f0f0;
-  border-radius: 20rpx;
-  padding: 8rpx 16rpx;
+  background-color: #F5F5F5;
+  border-radius: 16rpx;
+  padding: 6rpx 14rpx;
 }
 
 .tabbar-icon.icon-active {
-  background-color: #007AFF;
+  background-color: #667eea;
 }
 
 .icon-text {
-  font-size: 28rpx;
+  font-size: 24rpx;
   color: #666666;
 }
 
@@ -36,16 +37,16 @@
 }
 
 .tabbar-label {
-  font-size: 20rpx;
+  font-size: 18rpx;
   color: #999999;
 }
 
 .tabbar-label.label-active {
-  color: #007AFF;
+  color: #667eea;
 }
 
 .tabbar-item.active .tabbar-label {
-  color: #007AFF;
+  color: #667eea;
 }
 
 .tabbar-item.active .icon-text {

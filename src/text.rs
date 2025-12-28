@@ -182,4 +182,48 @@ impl TextRenderer {
         let metrics = self.main_font.metrics('M', size);
         metrics.height as f32
     }
+    
+    /// 自动换行绘制文本
+    pub fn draw_text_wrapped(&self, canvas: &mut Canvas, text: &str, x: f32, y: f32, size: f32, max_width: f32, paint: &Paint) {
+        if max_width <= 0.0 {
+            self.draw_text(canvas, text, x, y, size, paint);
+            return;
+        }
+        
+        let line_height = size * 1.4; // 行高
+        let mut current_y = y;
+        let mut line_start = 0;
+        let chars: Vec<char> = text.chars().collect();
+        let mut current_width = 0.0;
+        
+        for (i, ch) in chars.iter().enumerate() {
+            let font = if Self::is_emoji(*ch) {
+                self.emoji_font.as_ref().unwrap_or(&self.main_font)
+            } else {
+                &self.main_font
+            };
+            let metrics = font.metrics(*ch, size);
+            let char_width = metrics.advance_width;
+            
+            // 检查是否需要换行
+            if current_width + char_width > max_width && i > line_start {
+                // 绘制当前行
+                let line: String = chars[line_start..i].iter().collect();
+                self.draw_text(canvas, &line, x, current_y, size, paint);
+                
+                // 移动到下一行
+                current_y += line_height;
+                line_start = i;
+                current_width = char_width;
+            } else {
+                current_width += char_width;
+            }
+        }
+        
+        // 绘制最后一行
+        if line_start < chars.len() {
+            let line: String = chars[line_start..].iter().collect();
+            self.draw_text(canvas, &line, x, current_y, size, paint);
+        }
+    }
 }

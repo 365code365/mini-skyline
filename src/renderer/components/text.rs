@@ -18,14 +18,15 @@ impl TextComponent {
         if text_content.is_empty() { return None; }
         
         let sf = ctx.scale_factor;
-        // 简单估算文本宽度
-        let char_width = ns.font_size * 0.6 * sf;
-        let tw = text_content.chars().count() as f32 * char_width;
+        let font_size = ns.font_size * sf;
+        let line_height = (ns.font_size + 6.0) * sf;
         
-        ts.size = Size { 
-            width: length(tw), 
-            height: length((ns.font_size + 4.0) * sf) 
-        };
+        // 不设置固定宽度，让父容器决定
+        // 设置 flex-shrink 允许收缩
+        ts.flex_shrink = 1.0;
+        
+        // 估算文本高度（单行）
+        ts.min_size.height = length(line_height);
         
         let tn = ctx.taffy.new_leaf(ts).unwrap();
         
@@ -46,7 +47,7 @@ impl TextComponent {
         text_renderer: Option<&TextRenderer>,
         x: f32, 
         y: f32, 
-        _w: f32, 
+        w: f32, 
         _h: f32, 
         sf: f32
     ) {
@@ -55,7 +56,13 @@ impl TextComponent {
         
         if let Some(tr) = text_renderer {
             let paint = Paint::new().with_color(color).with_style(PaintStyle::Fill);
-            tr.draw_text(canvas, &node.text, x, y + size, size, &paint);
+            
+            // 自动换行绘制
+            if w > 0.0 {
+                tr.draw_text_wrapped(canvas, &node.text, x, y + size, size, w, &paint);
+            } else {
+                tr.draw_text(canvas, &node.text, x, y + size, size, &paint);
+            }
         }
     }
 }
