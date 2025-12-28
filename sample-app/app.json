@@ -11,21 +11,18 @@
         "backgroundColor": "#F5F5F5"
     },
     "tabBar": {
+        "custom": true,
         "color": "#999999",
         "selectedColor": "#007AFF",
         "backgroundColor": "#FFFFFF",
         "list": [
             {
                 "pagePath": "pages/index/index",
-                "text": "首页",
-                "iconPath": "assets/home.png",
-                "selectedIconPath": "assets/home-active.png"
+                "text": "首页"
             },
             {
                 "pagePath": "pages/list/list",
-                "text": "列表",
-                "iconPath": "assets/list.png",
-                "selectedIconPath": "assets/list-active.png"
+                "text": "列表"
             }
         ]
     }

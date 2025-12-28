@@ -1,0 +1,53 @@
+/* 自定义 TabBar 样式 */
+.custom-tabbar {
+  display: flex;
+  flex-direction: row;
+  background-color: #ffffff;
+  padding: 8rpx 0 16rpx;
+  justify-content: space-around;
+  align-items: center;
+}
+
+.tabbar-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4rpx;
+  padding: 0 40rpx;
+}
+
+.tabbar-icon {
+  background-color: #f0f0f0;
+  border-radius: 20rpx;
+  padding: 8rpx 16rpx;
+}
+
+.tabbar-icon.icon-active {
+  background-color: #007AFF;
+}
+
+.icon-text {
+  font-size: 28rpx;
+  color: #666666;
+}
+
+.tabbar-icon.icon-active .icon-text {
+  color: #ffffff;
+}
+
+.tabbar-label {
+  font-size: 20rpx;
+  color: #999999;
+}
+
+.tabbar-label.label-active {
+  color: #007AFF;
+}
+
+.tabbar-item.active .tabbar-label {
+  color: #007AFF;
+}
+
+.tabbar-item.active .icon-text {
+  color: #ffffff;
+}

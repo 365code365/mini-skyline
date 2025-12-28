@@ -52,6 +52,8 @@ fn default_bg() -> String { "#FFFFFF".to_string() }
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct TabBarConfig {
+    #[serde(default)]
+    custom: bool,
     #[serde(default = "default_tab_color")]
     color: String,
     #[serde(default = "default_tab_selected")]
@@ -91,6 +93,13 @@ struct PageInstance {
     query: HashMap<String, String>,
     wxml_nodes: Vec<mini_render::parser::wxml::WxmlNode>,
     stylesheet: mini_render::parser::wxss::StyleSheet,
+}
+
+/// 自定义 TabBar 组件
+struct CustomTabBar {
+    wxml_nodes: Vec<mini_render::parser::wxml::WxmlNode>,
+    stylesheet: mini_render::parser::wxss::StyleSheet,
+    js_code: String,
 }
 
 /// 微信小程序风格滚动控制器
@@ -250,6 +259,7 @@ struct MiniAppWindow {
     canvas: Option<Canvas>,
     tabbar_canvas: Option<Canvas>,
     renderer: Option<WxmlRenderer>,
+    tabbar_renderer: Option<WxmlRenderer>,
     text_renderer: Option<TextRenderer>,
     // 页面栈
     page_stack: Vec<PageInstance>,
@@ -258,6 +268,8 @@ struct MiniAppWindow {
     pages: HashMap<String, PageInfo>,
     // app.json 配置
     app_config: AppConfig,
+    // 自定义 TabBar
+    custom_tabbar: Option<CustomTabBar>,
     mouse_pos: (f32, f32),
     needs_redraw: bool,
     scale_factor: f64,
@@ -288,10 +300,21 @@ impl MiniAppWindow {
         
         println!("📱 App config loaded");
         if let Some(ref tab_bar) = app_config.tab_bar {
-            println!("   TabBar: {} items", tab_bar.list.len());
+            println!("   TabBar: {} items, custom: {}", tab_bar.list.len(), tab_bar.custom);
             for item in &tab_bar.list {
                 println!("     - {} ({})", item.text, item.page_path);
             }
+        }
+        
+        // 加载自定义 TabBar（如果启用）
+        let custom_tabbar = if app_config.tab_bar.as_ref().map(|tb| tb.custom).unwrap_or(false) {
+            Self::load_custom_tabbar()?
+        } else {
+            None
+        };
+        
+        if custom_tabbar.is_some() {
+            println!("   ✅ Custom TabBar loaded");
         }
         
         // 加载所有页面资源
@@ -334,11 +357,13 @@ impl MiniAppWindow {
             canvas: None,
             tabbar_canvas: None,
             renderer: None,
+            tabbar_renderer: None,
             text_renderer: None,
             page_stack: Vec::new(),
             current_page_index: 0,
             pages,
             app_config,
+            custom_tabbar,
             mouse_pos: (0.0, 0.0),
             needs_redraw: true,
             scale_factor: 1.0,
@@ -358,6 +383,25 @@ impl MiniAppWindow {
         Ok(window)
     }
     
+    /// 加载自定义 TabBar 组件
+    fn load_custom_tabbar() -> Result<Option<CustomTabBar>, String> {
+        let wxml = include_str!("../../sample-app/custom-tab-bar/index.wxml");
+        let wxss = include_str!("../../sample-app/custom-tab-bar/index.wxss");
+        let js = include_str!("../../sample-app/custom-tab-bar/index.js");
+        
+        let mut wxml_parser = WxmlParser::new(wxml);
+        let wxml_nodes = wxml_parser.parse().map_err(|e| format!("Custom TabBar WXML error: {}", e))?;
+        
+        let mut wxss_parser = WxssParser::new(wxss);
+        let stylesheet = wxss_parser.parse().map_err(|e| format!("Custom TabBar WXSS error: {}", e))?;
+        
+        Ok(Some(CustomTabBar {
+            wxml_nodes,
+            stylesheet,
+            js_code: js.to_string(),
+        }))
+    }
+    
     /// 检查当前页面是否在 TabBar 中
     fn is_tabbar_page(&self, path: &str) -> bool {
         self.app_config.tab_bar.as_ref()
@@ -369,6 +413,12 @@ impl MiniAppWindow {
     fn get_tabbar_index(&self, path: &str) -> Option<usize> {
         self.app_config.tab_bar.as_ref()
             .and_then(|tb| tb.list.iter().position(|item| item.page_path == path))
+    }
+    
+    /// 是否使用自定义 TabBar
+    fn is_custom_tabbar(&self) -> bool {
+        self.app_config.tab_bar.as_ref().map(|tb| tb.custom).unwrap_or(false) 
+            && self.custom_tabbar.is_some()
     }
 
     fn navigate_to(&mut self, path: &str, query: HashMap<String, String>) -> Result<(), String> {
@@ -522,6 +572,16 @@ impl MiniAppWindow {
                 CONTENT_HEIGHT as f32,
                 self.scale_factor as f32,
             ));
+            
+            // 自定义 TabBar 渲染器
+            if let Some(ref custom_tabbar) = self.custom_tabbar {
+                self.tabbar_renderer = Some(WxmlRenderer::new_with_scale(
+                    custom_tabbar.stylesheet.clone(),
+                    LOGICAL_WIDTH as f32,
+                    TABBAR_HEIGHT as f32,
+                    self.scale_factor as f32,
+                ));
+            }
         }
     }
 
@@ -545,11 +605,57 @@ impl MiniAppWindow {
             renderer.render(canvas, &page.wxml_nodes, &page_data);
         }
         
-        // 渲染原生 TabBar（如果当前页面在 TabBar 中）
+        // 渲染 TabBar（如果当前页面在 TabBar 中）
         let has_tabbar = self.is_tabbar_page(&current_path);
         if has_tabbar {
-            self.render_native_tabbar(&current_path);
+            if self.is_custom_tabbar() {
+                self.render_custom_tabbar(&current_path);
+            } else {
+                self.render_native_tabbar(&current_path);
+            }
         }
+    }
+    
+    /// 渲染自定义 TabBar
+    fn render_custom_tabbar(&mut self, current_path: &str) {
+        let tab_bar_config = match &self.app_config.tab_bar {
+            Some(tb) => tb.clone(),
+            None => return,
+        };
+        
+        // 构建自定义 TabBar 的数据
+        let selected_index = self.get_tabbar_index(current_path).unwrap_or(0);
+        let list: Vec<serde_json::Value> = tab_bar_config.list.iter().map(|item| {
+            json!({
+                "pagePath": item.page_path,
+                "text": item.text
+            })
+        }).collect();
+        
+        let tabbar_data = json!({
+            "selected": selected_index,
+            "list": list
+        });
+        
+        let custom_tabbar = match &self.custom_tabbar {
+            Some(ct) => ct,
+            None => return,
+        };
+        let wxml_nodes = custom_tabbar.wxml_nodes.clone();
+        
+        let canvas = match &mut self.tabbar_canvas {
+            Some(c) => c,
+            None => return,
+        };
+        
+        let renderer = match &mut self.tabbar_renderer {
+            Some(r) => r,
+            None => return,
+        };
+        
+        // 渲染自定义 TabBar
+        canvas.clear(Color::WHITE);
+        renderer.render(canvas, &wxml_nodes, &tabbar_data);
     }
     
     /// 渲染原生 TabBar
@@ -693,8 +799,12 @@ impl MiniAppWindow {
         let tabbar_y = if has_tabbar { (LOGICAL_HEIGHT - TABBAR_HEIGHT) as f32 } else { LOGICAL_HEIGHT as f32 };
         
         if has_tabbar && y >= tabbar_y {
-            // 原生 TabBar 点击
-            self.handle_tabbar_click(x);
+            // TabBar 点击
+            if self.is_custom_tabbar() {
+                self.handle_custom_tabbar_click(x, y - tabbar_y);
+            } else {
+                self.handle_tabbar_click(x);
+            }
         } else {
             // 内容区域点击
             let actual_y = y + self.scroll.get_position();
@@ -707,6 +817,28 @@ impl MiniAppWindow {
                     self.check_navigation();
                     self.print_js_output();
                     self.needs_redraw = true;
+                }
+            }
+        }
+    }
+    
+    /// 处理自定义 TabBar 点击
+    fn handle_custom_tabbar_click(&mut self, x: f32, y: f32) {
+        if let Some(renderer) = &self.tabbar_renderer {
+            if let Some(binding) = renderer.hit_test(x, y) {
+                println!("👆 Custom TabBar {} -> {}", binding.event_type, binding.handler);
+                
+                // 获取点击的 tab 索引和路径
+                if let (Some(index_str), Some(path)) = (binding.data.get("index"), binding.data.get("path")) {
+                    if let Ok(index) = index_str.parse::<usize>() {
+                        let current_path = self.page_stack.last().map(|p| p.path.clone()).unwrap_or_default();
+                        
+                        if path != &current_path {
+                            println!("   Switch to tab {}: {}", index, path);
+                            self.pending_navigation = Some(NavigationRequest::SwitchTab { url: path.clone() });
+                            if let Some(w) = &self.window { w.request_redraw(); }
+                        }
+                    }
                 }
             }
         }
