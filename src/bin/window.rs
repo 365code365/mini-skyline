@@ -902,7 +902,61 @@ impl MiniAppWindow {
             }
         } else {
             // 内容区域点击
-            let actual_y = y + self.scroll.get_position();
+            let scroll_pos = self.scroll.get_position();
+            let actual_y = y + scroll_pos;
+            
+            // 首先检查 fixed 元素（使用视口坐标，不加滚动偏移）
+            // fixed 元素的事件绑定是相对于视口的
+            let fixed_binding = if let Some(renderer) = &self.renderer {
+                if let Some(binding) = renderer.hit_test(x, y) {
+                    // 检查这个绑定是否在视口范围内（可能是 fixed 元素）
+                    if binding.bounds.y >= 0.0 && binding.bounds.y < tabbar_y {
+                        Some((binding.event_type.clone(), binding.handler.clone(), binding.data.clone(), binding.bounds))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            
+            if let Some((event_type, handler, data, _bounds)) = fixed_binding {
+                // 检查交互元素（使用视口坐标）
+                if let Some(result) = self.interaction.handle_click(x, y) {
+                    self.handle_interaction_result(result.clone());
+                    
+                    let should_call_js = match &result {
+                        InteractionResult::ButtonClick { .. } => true,
+                        InteractionResult::Toggle { .. } => true,
+                        InteractionResult::Select { .. } => true,
+                        _ => false,
+                    };
+                    
+                    if should_call_js {
+                        println!("👆 {} -> {}", event_type, handler);
+                        let data_json = serde_json::to_string(&data).unwrap_or("{}".to_string());
+                        let call_code = format!("__callPageMethod('{}', {})", handler, data_json);
+                        self.app.eval(&call_code).ok();
+                        self.check_navigation();
+                        self.print_js_output();
+                    }
+                    
+                    self.needs_redraw = true;
+                    return;
+                }
+                
+                // 如果没有交互元素，直接调用事件处理
+                println!("👆 {} -> {}", event_type, handler);
+                let data_json = serde_json::to_string(&data).unwrap_or("{}".to_string());
+                let call_code = format!("__callPageMethod('{}', {})", handler, data_json);
+                self.app.eval(&call_code).ok();
+                self.check_navigation();
+                self.print_js_output();
+                self.needs_redraw = true;
+                return;
+            }
             
             // 使用交互管理器处理点击（按钮点击也在这里处理）
             if let Some(result) = self.interaction.handle_click(x, actual_y) {

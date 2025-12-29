@@ -446,3 +446,93 @@ fn test_nested_layout() {
     assert_eq!(child1_layout.location.x, 0.0);
     assert_eq!(child2_layout.location.x, 70.0); // 100 - 30
 }
+
+
+/// 测试 list-item 和 list-info 的布局（模拟实际问题）
+/// list-item: flex-direction: row, align-items: center
+/// list-info: flex: 1, flex-direction: column, 包含三个 text 子元素
+#[test]
+fn test_list_item_layout() {
+    let mut taffy: TaffyTree<()> = TaffyTree::new();
+    
+    // list-img: 固定大小
+    let list_img = taffy.new_leaf(Style {
+        size: Size { width: length(140.0), height: length(140.0) },
+        ..Default::default()
+    }).unwrap();
+    
+    // list-info 的子元素（三个 text）
+    let list_name = taffy.new_leaf(Style {
+        size: Size { width: Dimension::Percent(1.0), height: auto() },
+        min_size: Size { width: auto(), height: length(42.0) },
+        ..Default::default()
+    }).unwrap();
+    
+    let list_desc = taffy.new_leaf(Style {
+        size: Size { width: Dimension::Percent(1.0), height: auto() },
+        min_size: Size { width: auto(), height: length(36.0) },
+        margin: Rect { top: length(8.0), ..Rect::zero() },
+        ..Default::default()
+    }).unwrap();
+    
+    let list_price = taffy.new_leaf(Style {
+        size: Size { width: Dimension::Percent(1.0), height: auto() },
+        min_size: Size { width: auto(), height: length(45.0) },
+        margin: Rect { top: length(8.0), ..Rect::zero() },
+        ..Default::default()
+    }).unwrap();
+    
+    // list-info: flex: 1, flex-direction: column
+    let list_info = taffy.new_with_children(
+        Style {
+            flex_grow: 1.0,
+            flex_direction: FlexDirection::Column,
+            margin: Rect { left: length(16.0), ..Rect::zero() },
+            ..Default::default()
+        },
+        &[list_name, list_desc, list_price],
+    ).unwrap();
+    
+    // list-btn: 固定大小
+    let list_btn = taffy.new_leaf(Style {
+        size: Size { width: length(79.0), height: length(42.0) },
+        ..Default::default()
+    }).unwrap();
+    
+    // list-item: flex-direction: row, align-items: center
+    let list_item = taffy.new_with_children(
+        Style {
+            size: Size { width: length(702.0), height: auto() },
+            flex_direction: FlexDirection::Row,
+            align_items: Some(AlignItems::Center),
+            padding: Rect { top: length(16.0), bottom: length(16.0), ..Rect::zero() },
+            ..Default::default()
+        },
+        &[list_img, list_info, list_btn],
+    ).unwrap();
+    
+    taffy.compute_layout(list_item, Size::MAX_CONTENT).unwrap();
+    
+    // 验证布局结果
+    let list_item_layout = taffy.layout(list_item).unwrap();
+    let list_img_layout = taffy.layout(list_img).unwrap();
+    let list_info_layout = taffy.layout(list_info).unwrap();
+    let list_btn_layout = taffy.layout(list_btn).unwrap();
+    
+    eprintln!("list_item: w={} h={}", list_item_layout.size.width, list_item_layout.size.height);
+    eprintln!("list_img: x={} y={} w={} h={}", 
+        list_img_layout.location.x, list_img_layout.location.y,
+        list_img_layout.size.width, list_img_layout.size.height);
+    eprintln!("list_info: x={} y={} w={} h={}", 
+        list_info_layout.location.x, list_info_layout.location.y,
+        list_info_layout.size.width, list_info_layout.size.height);
+    eprintln!("list_btn: x={} y={} w={} h={}", 
+        list_btn_layout.location.x, list_btn_layout.location.y,
+        list_btn_layout.size.width, list_btn_layout.size.height);
+    
+    // list-info 的高度应该是其子元素高度的总和：42 + 8 + 36 + 8 + 45 = 139
+    let expected_list_info_height = 42.0 + 8.0 + 36.0 + 8.0 + 45.0;
+    assert!(list_info_layout.size.height >= expected_list_info_height - 1.0, 
+        "list_info height should be at least {}, but got {}", 
+        expected_list_info_height, list_info_layout.size.height);
+}

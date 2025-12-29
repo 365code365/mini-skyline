@@ -149,6 +149,19 @@ impl WxmlRenderer {
         let mut fixed_nodes = Vec::new();
         collect_fixed_with_pos(&render_nodes, &taffy, 0.0, 0.0, &mut fixed_nodes);
         
+        // Debug: 打印 render_nodes 数量
+        static RENDER_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let count = RENDER_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if count < 3 {
+            eprintln!("[RENDER] render_nodes count: {}", render_nodes.len());
+            if let Some(rn) = render_nodes.first() {
+                eprintln!("[RENDER] first node: tag={} class={} children={}", 
+                    rn.tag, 
+                    rn.attrs.get("class").map(|s| s.as_str()).unwrap_or(""),
+                    rn.children.len());
+            }
+        }
+        
         // 渲染所有元素（fixed 元素会在 draw_with_interaction 中被跳过）
         for rn in &render_nodes {
             self.draw_with_interaction(canvas, &taffy, rn, 0.0, 0.0, interaction, 0.0);
@@ -436,7 +449,42 @@ impl WxmlRenderer {
                 if !children.is_empty() {
                     let child_ids: Vec<NodeId> = children.iter().map(|c| c.taffy_node).collect();
                     let (ts, _) = build_base_style(node, &mut ctx);
+                    
+                    // Debug: 打印 list-item 和 list-info 的布局信息
+                    let classes: Vec<&str> = node.get_attr("class")
+                        .map(|s| s.split_whitespace().collect())
+                        .unwrap_or_default();
+                    if classes.contains(&"list-item") {
+                        eprintln!("[BUILD] list-item: flex_direction={:?} align_items={:?} children={}", 
+                            ts.flex_direction, ts.align_items, child_ids.len());
+                        eprintln!("  rn.attrs.class = {:?}", rn.attrs.get("class"));
+                    }
+                    if classes.contains(&"list-info") {
+                        eprintln!("[BUILD] list-info: flex_direction={:?} flex_grow={} children={}", 
+                            ts.flex_direction, ts.flex_grow, child_ids.len());
+                        eprintln!("  size={:?} min_size={:?}", ts.size, ts.min_size);
+                        eprintln!("  align_items={:?} align_self={:?}", ts.align_items, ts.align_self);
+                        eprintln!("  child_ids={:?}", child_ids);
+                        for (i, child) in children.iter().enumerate() {
+                            let cc = child.attrs.get("class").map(|s| s.as_str()).unwrap_or("");
+                            // 获取子节点的 taffy 布局信息
+                            let child_style = ctx.taffy.style(child.taffy_node).unwrap();
+                            eprintln!("  child[{}] class={} tag={} taffy_node={:?}", 
+                                i, cc, child.tag, child.taffy_node);
+                            eprintln!("    size={:?} min_size={:?}", child_style.size, child_style.min_size);
+                            eprintln!("    margin={:?}", child_style.margin);
+                        }
+                    }
+                    
                     let new_tn = ctx.taffy.new_with_children(ts, &child_ids).unwrap();
+                    
+                    // Debug: 验证子节点是否正确关联
+                    if classes.contains(&"list-info") {
+                        eprintln!("[BUILD] list-info: new_tn={:?}", new_tn);
+                        let children_of_new_tn = ctx.taffy.children(new_tn).unwrap();
+                        eprintln!("  children_of_new_tn={:?}", children_of_new_tn);
+                    }
+                    
                     rn.taffy_node = new_tn;
                     rn.children = children;
                 }
@@ -483,6 +531,26 @@ impl WxmlRenderer {
         let y = oy + layout.location.y;
         let w = layout.size.width;
         let h = layout.size.height;
+        
+        // Debug: 打印顶层节点的子节点数量（只打印前几次）
+        static DRAW_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let class_str = node.attrs.get("class").map(|s| s.as_str()).unwrap_or("");
+        let count = DRAW_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if count < 5 {
+            eprintln!("[DRAW] tag={} class={} children={}", node.tag, class_str, node.children.len());
+        }
+        
+        // Debug: 打印 list-item 的布局（只打印一次）
+        static PRINTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if class_str.contains("list-item") && !PRINTED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            eprintln!("[LAYOUT] list-item: x={:.0} y={:.0} w={:.0} h={:.0} children={}", x, y, w, h, node.children.len());
+            for (i, child) in node.children.iter().enumerate() {
+                let cl = taffy.layout(child.taffy_node).unwrap();
+                let cc = child.attrs.get("class").map(|s| s.as_str()).unwrap_or("");
+                eprintln!("  child[{}] {}: x={:.0} y={:.0} w={:.0} h={:.0}", i, cc, cl.location.x, cl.location.y, cl.size.width, cl.size.height);
+            }
+        }
+        
         let logical_bounds = GeoRect::new(x / sf, y / sf, w / sf, h / sf);
         
         let component_id = Self::get_component_id(node, &logical_bounds);
@@ -623,6 +691,38 @@ impl WxmlRenderer {
         let y = oy + layout.location.y;
         let w = layout.size.width;
         let h = layout.size.height;
+        
+        // Debug: 打印 list-item 的布局
+        let class_str = node.attrs.get("class").map(|s| s.as_str()).unwrap_or("");
+        if class_str.contains("list-item") {
+            eprintln!("[LAYOUT-CHILD] list-item: x={:.0} y={:.0} w={:.0} h={:.0} children={}", x, y, w, h, node.children.len());
+            for (i, child) in node.children.iter().enumerate() {
+                let cl = taffy.layout(child.taffy_node).unwrap();
+                let cc = child.attrs.get("class").map(|s| s.as_str()).unwrap_or("");
+                eprintln!("  child[{}] {}: x={:.0} y={:.0} w={:.0} h={:.0} tag={}", i, cc, cl.location.x, cl.location.y, cl.size.width, cl.size.height, child.tag);
+                // 打印 list-info 的子节点
+                if cc.contains("list-info") {
+                    eprintln!("    list-info children: {}", child.children.len());
+                    for (j, gc) in child.children.iter().enumerate() {
+                        let gcl = taffy.layout(gc.taffy_node).unwrap();
+                        let gcc = gc.attrs.get("class").map(|s| s.as_str()).unwrap_or("");
+                        let text_preview: String = gc.text.chars().take(15).collect();
+                        eprintln!("      gc[{}] {}: x={:.0} y={:.0} w={:.0} h={:.0} tag={} text={}", 
+                            j, gcc, gcl.location.x, gcl.location.y, gcl.size.width, gcl.size.height, gc.tag, text_preview);
+                    }
+                }
+            }
+        }
+        // Debug: 打印 product-list 的子节点
+        static PRINTED3: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if class_str.contains("product-list") && !PRINTED3.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            eprintln!("[LAYOUT-CHILD] product-list: children={}", node.children.len());
+            for (i, child) in node.children.iter().enumerate() {
+                let cc = child.attrs.get("class").map(|s| s.as_str()).unwrap_or("");
+                eprintln!("  child[{}] class={} tag={}", i, cc, child.tag);
+            }
+        }
+        
         let logical_bounds = GeoRect::new(x / sf, y / sf, w / sf, h / sf);
 
         let text_color = node.style.text_color.unwrap_or(inherited_color);

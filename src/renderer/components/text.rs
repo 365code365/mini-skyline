@@ -43,8 +43,11 @@ impl TextComponent {
         // 设置 flex-shrink 允许收缩
         ts.flex_shrink = 1.0;
         
-        // 设置最小高度为文本行数 * 行高
-        ts.min_size.height = length(actual_line_height * min_lines as f32);
+        // 设置高度为文本行数 * 行高（而不是 min_size，确保 taffy 正确计算父容器高度）
+        // 同时设置 min_size 作为保底
+        let text_height = actual_line_height * min_lines as f32;
+        ts.size.height = length(text_height);
+        ts.min_size.height = length(text_height);
         
         // 如果 CSS 没有设置宽度，根据 display 属性决定宽度
         // display: block 时使用 100%，否则使用估算的文本宽度
