@@ -72,6 +72,38 @@ impl FocusedInput {
     }
 }
 
+/// 计算光标位置
+///
+/// 根据 x 坐标（相对于输入框左边缘）和每个字符的宽度，计算光标应该在的位置
+/// 返回光标位置（字符索引）
+pub fn calculate_cursor_position(text: &str, char_widths: &[f32], click_x: f32, padding_left: f32) -> usize {
+    // 减去左边距后的点击位置
+    let click_offset = click_x - padding_left;
+
+    if click_offset <= 0.0 {
+        // 点击在文本左侧，光标在开头
+        return 0;
+    }
+
+    let mut cumulative_width = 0.0;
+    for (i, &width) in char_widths.iter().enumerate() {
+        let next_width = cumulative_width + width;
+
+        if click_offset < next_width - width / 2.0 {
+            // 点击在字符的前半部分，光标在字符之前
+            return i;
+        } else if click_offset >= next_width - width / 2.0 && click_offset < next_width {
+            // 点击在字符的后半部分，光标在字符之后
+            return i + 1;
+        }
+
+        cumulative_width = next_width;
+    }
+
+    // 点击在所有字符之后，光标在末尾
+    text.chars().count()
+}
+
 /// 拖动中的滑块
 #[derive(Clone, Debug)]
 pub struct DraggingSlider {
@@ -275,10 +307,14 @@ impl InteractionManager {
                     is_password: false,
                     bounds: element.bounds,
                 });
-                
-                Some(InteractionResult::Focus { 
+
+                // 记录点击位置用于后续计算光标位置
+                let click_x = x - element.bounds.x;
+
+                Some(InteractionResult::Focus {
                     id: element.id,
                     bounds: element.bounds,
+                    click_x,
                 })
             }
             InteractionType::Button => {
@@ -646,7 +682,7 @@ pub enum InteractionResult {
     Select { id: String, value: String },
     SliderChange { id: String, value: i32 },
     SliderEnd { id: String },
-    Focus { id: String, bounds: Rect },
+    Focus { id: String, bounds: Rect, click_x: f32 },
     InputChange { id: String, value: String },
     InputBlur { id: String, value: String },
     ButtonClick { id: String, bounds: Rect },

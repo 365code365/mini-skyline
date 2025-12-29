@@ -616,6 +616,17 @@ impl WxmlRenderer {
                 }
                 _ => {}
             }
+        } else if matches!(node.tag.as_str(), "input" | "textarea") {
+            // 输入框但还没有交互状态，显示 placeholder 或初始值
+            let placeholder = node.attrs.get("placeholder").cloned().unwrap_or_default();
+            let initial_value = node.attrs.get("value").cloned().unwrap_or_default();
+            
+            if initial_value.is_empty() {
+                node_to_draw.text = placeholder;
+                node_to_draw.style.text_color = Some(Color::from_hex(0xBFBFBF));
+            } else {
+                node_to_draw.text = initial_value;
+            }
         }
         
         // 绘制组件 - 特殊处理 input 和 button 组件
@@ -789,6 +800,17 @@ impl WxmlRenderer {
                     }
                 }
                 _ => {}
+            }
+        } else if matches!(node.tag.as_str(), "input" | "textarea") {
+            // 输入框但还没有交互状态，显示 placeholder 或初始值
+            let placeholder = node.attrs.get("placeholder").cloned().unwrap_or_default();
+            let initial_value = node.attrs.get("value").cloned().unwrap_or_default();
+            
+            if initial_value.is_empty() {
+                node_to_draw.text = placeholder;
+                node_to_draw.style.text_color = Some(Color::from_hex(0xBFBFBF));
+            } else {
+                node_to_draw.text = initial_value;
             }
         }
 

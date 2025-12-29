@@ -960,16 +960,44 @@ impl MiniAppWindow {
             
             // 使用交互管理器处理点击（按钮点击也在这里处理）
             if let Some(result) = self.interaction.handle_click(x, actual_y) {
+                // 处理输入框光标位置
+                if let InteractionResult::Focus { click_x, .. } = &result {
+                    if let Some(focused) = &self.interaction.focused_input {
+                        if let Some(text_renderer) = &self.text_renderer {
+                            // 计算每个字符的宽度
+                            let font_size = (16.0 * self.scale_factor) as f32;
+                            let padding_left = (12.0 * self.scale_factor) as f32;
+
+                            let mut char_widths = Vec::new();
+                            for c in focused.value.chars() {
+                                let char_str = c.to_string();
+                                let width = text_renderer.measure_text(&char_str, font_size);
+                                char_widths.push(width);
+                            }
+
+                            // 计算光标位置
+                            use mini_render::ui::interaction::calculate_cursor_position;
+                            let cursor_pos = calculate_cursor_position(&focused.value, &char_widths, *click_x as f32, padding_left);
+
+                            // 更新光标位置
+                            if let Some(input) = &mut self.interaction.focused_input {
+                                input.cursor_pos = cursor_pos;
+                            }
+                        }
+                    }
+                }
+
                 self.handle_interaction_result(result.clone());
-                
+
                 // 检查事件绑定并调用 JS 处理函数
                 let should_call_js = match &result {
                     InteractionResult::ButtonClick { .. } => true,
                     InteractionResult::Toggle { .. } => true,  // switch/checkbox 的 bindchange
                     InteractionResult::Select { .. } => true,  // radio 的 bindchange
+                    InteractionResult::Focus { .. } => true,  // input 的 bindfocus
                     _ => false,
                 };
-                
+
                 if should_call_js {
                     if let Some(renderer) = &self.renderer {
                         if let Some(binding) = renderer.hit_test(x, actual_y) {
@@ -982,9 +1010,16 @@ impl MiniAppWindow {
                         }
                     }
                 }
-                
+
                 self.needs_redraw = true;
                 return;
+            } else {
+                // 点击了非交互区域，让输入框失去焦点
+                if self.interaction.has_focused_input() {
+                    if let Some(blur_result) = self.interaction.blur_input() {
+                        self.handle_interaction_result(blur_result);
+                    }
+                }
             }
             
             // 检查其他事件绑定
@@ -1017,7 +1052,7 @@ impl MiniAppWindow {
             InteractionResult::SliderEnd { id } => {
                 println!("🎚️ Slider {} released", id);
             }
-            InteractionResult::Focus { id, bounds } => {
+            InteractionResult::Focus { id, bounds, click_x: _ } => {
                 println!("📝 Focus: {} at ({:.0}, {:.0})", id, bounds.x, bounds.y);
                 // 启用 IME 并设置位置到输入框下方
                 if let Some(window) = &self.window {
@@ -1029,18 +1064,55 @@ impl MiniAppWindow {
                     let ime_y = ((bounds.y - scroll_offset + bounds.height + 5.0) * sf as f32) as f64;
                     let ime_w = (bounds.width * sf as f32) as f64;
                     let ime_h = (bounds.height * sf as f32) as f64;
-                    
+
                     window.set_ime_cursor_area(
                         winit::dpi::PhysicalPosition::new(ime_x, ime_y),
                         winit::dpi::PhysicalSize::new(ime_w, ime_h),
                     );
                 }
+                // bindfocus 事件已在点击时触发
             }
             InteractionResult::InputChange { id, value } => {
                 println!("📝 Input {}: {}", id, value);
+                // 触发 bindinput 事件
+                if let Some(renderer) = &self.renderer {
+                    // 查找当前聚焦输入框的 input 事件绑定
+                    for binding in renderer.get_event_bindings() {
+                        if binding.event_type == "input" {
+                            // 简化匹配：假设只有一个输入框有焦点
+                            let mut event_data = binding.data.clone();
+                            event_data.insert("value".to_string(), value.clone());
+                            let data_json = serde_json::to_string(&event_data).unwrap_or("{}".to_string());
+                            let call_code = format!("__callPageMethod('{}', {})", binding.handler, data_json);
+                            self.app.eval(&call_code).ok();
+                            self.check_navigation();
+                            self.print_js_output();
+                            break;
+                        }
+                    }
+                }
             }
             InteractionResult::InputBlur { id, value } => {
                 println!("📝 Blur {}: {}", id, value);
+                // 禁用 IME
+                if let Some(window) = &self.window {
+                    window.set_ime_allowed(false);
+                }
+                // 触发 bindblur 事件
+                if let Some(renderer) = &self.renderer {
+                    for binding in renderer.get_event_bindings() {
+                        if binding.event_type == "blur" {
+                            let mut event_data = binding.data.clone();
+                            event_data.insert("value".to_string(), value.clone());
+                            let data_json = serde_json::to_string(&event_data).unwrap_or("{}".to_string());
+                            let call_code = format!("__callPageMethod('{}', {})", binding.handler, data_json);
+                            self.app.eval(&call_code).ok();
+                            self.check_navigation();
+                            self.print_js_output();
+                            break;
+                        }
+                    }
+                }
             }
             InteractionResult::ButtonClick { id, bounds: _ } => {
                 println!("🔘 Button clicked: {}", id);

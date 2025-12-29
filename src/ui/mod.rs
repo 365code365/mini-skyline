@@ -16,4 +16,4 @@ pub use button::Button;
 pub use image::Image;
 pub use scroll_view::ScrollView;
 pub use layout::{Layout, FlexDirection, FlexAlign};
-pub use interaction::{InteractionManager, InteractiveElement, InteractionType, InteractionResult, KeyInput, ComponentState};
+pub use interaction::{InteractionManager, InteractiveElement, InteractionType, InteractionResult, KeyInput, ComponentState, calculate_cursor_position};
