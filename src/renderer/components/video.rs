@@ -1,7 +1,6 @@
 //! video 组件 - 视频播放器
 //! 
-//! 使用 mp4 crate 解析容器，openh264 解码 H.264 视频
-//! 使用 rodio 播放音频
+//! 使用 symphonia 解码音频，手动解析 MP4 容器，openh264 解码 H.264 视频
 //! 
 //! 属性：
 //! - src: 视频资源地址
@@ -18,9 +17,25 @@ use taffy::prelude::*;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
-use std::io::{Read, Seek, Cursor};
-use openh264::formats::YUVSource;
-use rodio::{Decoder, OutputStream, Sink, Source};
+use std::path::PathBuf;
+use std::fs::File;
+
+// 音频播放
+use rodio::{OutputStream, Sink, Source};
+use symphonia::core::audio::SampleBuffer;
+use symphonia::core::codecs::DecoderOptions;
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::probe::Hint;
+
+// H.264 解码
+use openh264::decoder::Decoder as H264Decoder;
+
+// 音频播放器 (thread_local 因为 OutputStream 不是 Send)
+thread_local! {
+    static AUDIO_STREAM: std::cell::RefCell<Option<(OutputStream, Sink)>> = std::cell::RefCell::new(None);
+}
 
 /// 视频帧数据
 pub struct VideoFrame {
@@ -30,14 +45,27 @@ pub struct VideoFrame {
     pub timestamp: f64, // 秒
 }
 
-/// 全局音频播放器（使用 thread_local 因为 OutputStream 不是 Send）
-thread_local! {
-    static AUDIO_STREAM: std::cell::RefCell<Option<(OutputStream, Sink)>> = std::cell::RefCell::new(None);
+/// 音频样本缓冲
+struct AudioBuffer {
+    samples: Vec<f32>,
+    sample_rate: u32,
+    channels: u16,
+}
+
+impl AudioBuffer {
+    fn new() -> Self {
+        Self {
+            samples: Vec::new(),
+            sample_rate: 44100,
+            channels: 2,
+        }
+    }
 }
 
 /// 视频播放器状态
 pub struct VideoPlayer {
     pub src: String,
+    pub file_path: Option<PathBuf>,
     pub frames: Vec<VideoFrame>,
     pub current_frame: usize,
     pub fps: f64,
@@ -46,34 +74,34 @@ pub struct VideoPlayer {
     pub height: u32,
     pub is_playing: bool,
     pub is_loaded: bool,
-    pub last_frame_time: Instant,
     pub play_start_time: Option<Instant>,
     pub play_start_frame: usize,
     pub loop_play: bool,
     pub load_error: Option<String>,
-    pub audio_data: Option<Vec<u8>>,
     pub muted: bool,
+    // 音频数据
+    audio_buffer: Option<AudioBuffer>,
 }
 
 impl VideoPlayer {
     pub fn new(src: &str) -> Self {
         Self {
             src: src.to_string(),
+            file_path: None,
             frames: Vec::new(),
             current_frame: 0,
-            fps: 30.0,
+            fps: 24.0,
             duration: 0.0,
             width: 0,
             height: 0,
             is_playing: false,
             is_loaded: false,
-            last_frame_time: Instant::now(),
             play_start_time: None,
             play_start_frame: 0,
             loop_play: false,
             load_error: None,
-            audio_data: None,
             muted: false,
+            audio_buffer: None,
         }
     }
     
@@ -85,462 +113,407 @@ impl VideoPlayer {
             self.src.trim_start_matches('/').to_string(),
             format!("sample-app{}", self.src),
             format!("sample-app/{}", self.src.trim_start_matches('/')),
-            format!("sample-app/assets/{}", self.src.trim_start_matches("/sample-app/assets/")),
-            format!("assets/{}", self.src.trim_start_matches("/assets/")),
         ];
         
-        let mut file = None;
-        let mut actual_path = String::new();
-        
+        let mut actual_path = None;
         for path in &paths_to_try {
             if std::path::Path::new(path).exists() {
-                match std::fs::File::open(path) {
-                    Ok(f) => {
-                        file = Some(f);
-                        actual_path = path.clone();
-                        break;
-                    }
-                    Err(_) => continue,
-                }
+                actual_path = Some(PathBuf::from(path));
+                break;
             }
         }
         
-        let file = file.ok_or_else(|| format!("Cannot find video: {}", self.src))?;
+        let path = actual_path.ok_or_else(|| format!("Cannot find video: {}", self.src))?;
+        self.file_path = Some(path.clone());
         
-        println!("🎬 Loading video: {}", actual_path);
+        println!("🎬 Loading video: {}", path.display());
         
-        // 解析 MP4
-        self.decode_mp4(file, &actual_path)?;
+        // 解析 MP4 并解码视频帧
+        self.decode_video_manual(&path)?;
+        
+        // 解码音频
+        if let Err(e) = self.decode_audio(&path) {
+            println!("   ⚠️ Audio decode warning: {}", e);
+        }
         
         Ok(())
     }
     
-    /// 解码 MP4 文件
-    fn decode_mp4<R: Read + Seek>(&mut self, _reader: R, path: &str) -> Result<(), String> {
-        // 完全手动解析 MP4 文件
-        let file_data = std::fs::read(path).map_err(|e| e.to_string())?;
+    /// 手动解析 MP4 并解码视频帧
+    fn decode_video_manual(&mut self, path: &PathBuf) -> Result<(), String> {
+        let data = std::fs::read(path).map_err(|e| format!("Cannot read file: {}", e))?;
         
-        // 查找 avcC box 获取 SPS/PPS
-        let avcc_data = self.find_avcc_box(&file_data)?;
-        let (sps_list, pps_list, nal_length_size) = self.parse_avcc(&avcc_data)?;
+        // 解析 MP4 box 结构
+        let mut pos = 0;
+        let mut width = 0u32;
+        let mut height = 0u32;
+        let mut timescale = 1u32;
+        let mut sample_sizes: Vec<u32> = Vec::new();
+        let mut chunk_offsets: Vec<u64> = Vec::new();
+        let mut sample_to_chunk: Vec<(u32, u32, u32)> = Vec::new(); // (first_chunk, samples_per_chunk, sample_desc_idx)
+        let mut sync_samples: Vec<u32> = Vec::new();
+        let mut sample_durations: Vec<(u32, u32)> = Vec::new(); // (count, delta)
         
-        println!("   Found {} SPS, {} PPS, NAL length size: {}", 
-            sps_list.len(), pps_list.len(), nal_length_size);
+        while pos + 8 <= data.len() {
+            let box_size = u32::from_be_bytes([data[pos], data[pos+1], data[pos+2], data[pos+3]]) as usize;
+            let box_type = &data[pos+4..pos+8];
+            
+            if box_size < 8 || pos + box_size > data.len() {
+                break;
+            }
+            
+            match box_type {
+                b"tkhd" => {
+                    // Track header - 获取宽高
+                    if box_size >= 92 {
+                        let version = data[pos + 8];
+                        let offset = if version == 1 { pos + 84 } else { pos + 76 };
+                        if offset + 8 <= data.len() {
+                            width = u32::from_be_bytes([data[offset], data[offset+1], data[offset+2], data[offset+3]]) >> 16;
+                            height = u32::from_be_bytes([data[offset+4], data[offset+5], data[offset+6], data[offset+7]]) >> 16;
+                        }
+                    }
+                }
+                b"mdhd" => {
+                    // Media header - 获取 timescale
+                    let version = data[pos + 8];
+                    let ts_offset = if version == 1 { pos + 28 } else { pos + 20 };
+                    if ts_offset + 4 <= data.len() {
+                        timescale = u32::from_be_bytes([data[ts_offset], data[ts_offset+1], data[ts_offset+2], data[ts_offset+3]]);
+                    }
+                }
+                b"stts" => {
+                    // Time-to-sample
+                    if pos + 16 <= data.len() {
+                        let entry_count = u32::from_be_bytes([data[pos+12], data[pos+13], data[pos+14], data[pos+15]]) as usize;
+                        let mut off = pos + 16;
+                        for _ in 0..entry_count {
+                            if off + 8 > data.len() { break; }
+                            let count = u32::from_be_bytes([data[off], data[off+1], data[off+2], data[off+3]]);
+                            let delta = u32::from_be_bytes([data[off+4], data[off+5], data[off+6], data[off+7]]);
+                            sample_durations.push((count, delta));
+                            off += 8;
+                        }
+                    }
+                }
+                b"stss" => {
+                    // Sync sample (keyframes)
+                    if pos + 16 <= data.len() {
+                        let entry_count = u32::from_be_bytes([data[pos+12], data[pos+13], data[pos+14], data[pos+15]]) as usize;
+                        let mut off = pos + 16;
+                        for _ in 0..entry_count {
+                            if off + 4 > data.len() { break; }
+                            let sample_num = u32::from_be_bytes([data[off], data[off+1], data[off+2], data[off+3]]);
+                            sync_samples.push(sample_num);
+                            off += 4;
+                        }
+                    }
+                }
+                b"stsc" => {
+                    // Sample-to-chunk
+                    if pos + 16 <= data.len() {
+                        let entry_count = u32::from_be_bytes([data[pos+12], data[pos+13], data[pos+14], data[pos+15]]) as usize;
+                        let mut off = pos + 16;
+                        for _ in 0..entry_count {
+                            if off + 12 > data.len() { break; }
+                            let first_chunk = u32::from_be_bytes([data[off], data[off+1], data[off+2], data[off+3]]);
+                            let samples_per_chunk = u32::from_be_bytes([data[off+4], data[off+5], data[off+6], data[off+7]]);
+                            let sample_desc_idx = u32::from_be_bytes([data[off+8], data[off+9], data[off+10], data[off+11]]);
+                            sample_to_chunk.push((first_chunk, samples_per_chunk, sample_desc_idx));
+                            off += 12;
+                        }
+                    }
+                }
+                b"stsz" => {
+                    // Sample sizes
+                    if pos + 20 <= data.len() {
+                        let default_size = u32::from_be_bytes([data[pos+12], data[pos+13], data[pos+14], data[pos+15]]);
+                        let sample_count = u32::from_be_bytes([data[pos+16], data[pos+17], data[pos+18], data[pos+19]]) as usize;
+                        if default_size == 0 {
+                            let mut off = pos + 20;
+                            for _ in 0..sample_count {
+                                if off + 4 > data.len() { break; }
+                                let size = u32::from_be_bytes([data[off], data[off+1], data[off+2], data[off+3]]);
+                                sample_sizes.push(size);
+                                off += 4;
+                            }
+                        } else {
+                            sample_sizes = vec![default_size; sample_count];
+                        }
+                    }
+                }
+                b"stco" => {
+                    // Chunk offsets (32-bit)
+                    if pos + 16 <= data.len() {
+                        let entry_count = u32::from_be_bytes([data[pos+12], data[pos+13], data[pos+14], data[pos+15]]) as usize;
+                        let mut off = pos + 16;
+                        for _ in 0..entry_count {
+                            if off + 4 > data.len() { break; }
+                            let offset = u32::from_be_bytes([data[off], data[off+1], data[off+2], data[off+3]]) as u64;
+                            chunk_offsets.push(offset);
+                            off += 4;
+                        }
+                    }
+                }
+                b"co64" => {
+                    // Chunk offsets (64-bit)
+                    if pos + 16 <= data.len() {
+                        let entry_count = u32::from_be_bytes([data[pos+12], data[pos+13], data[pos+14], data[pos+15]]) as usize;
+                        let mut off = pos + 16;
+                        for _ in 0..entry_count {
+                            if off + 8 > data.len() { break; }
+                            let offset = u64::from_be_bytes([
+                                data[off], data[off+1], data[off+2], data[off+3],
+                                data[off+4], data[off+5], data[off+6], data[off+7]
+                            ]);
+                            chunk_offsets.push(offset);
+                            off += 8;
+                        }
+                    }
+                }
+                _ => {}
+            }
+            
+            // 递归进入容器 box
+            if matches!(box_type, b"moov" | b"trak" | b"mdia" | b"minf" | b"stbl") {
+                pos += 8;
+                continue;
+            }
+            
+            pos += box_size;
+        }
         
-        // 解析视频尺寸和帧率
-        let (width, height, timescale, duration, sample_count) = self.parse_video_info(&file_data)?;
         self.width = width;
         self.height = height;
         
-        if sample_count > 0 && duration > 0 {
-            self.fps = (sample_count as f64 * timescale as f64) / duration as f64;
-            self.duration = duration as f64 / timescale as f64;
+        let sample_count = sample_sizes.len();
+        if sample_count == 0 {
+            return Err("No samples found".to_string());
         }
+        
+        // 计算时长和帧率
+        let mut total_duration = 0u64;
+        for (count, delta) in &sample_durations {
+            total_duration += *count as u64 * *delta as u64;
+        }
+        self.duration = total_duration as f64 / timescale as f64;
+        self.fps = if self.duration > 0.0 { sample_count as f64 / self.duration } else { 24.0 };
         
         println!("   Video: {}x{}, {:.1} fps, {:.1}s, {} samples", 
             self.width, self.height, self.fps, self.duration, sample_count);
         
-        // 提取音频数据
-        if let Ok(audio_data) = self.extract_audio_track(&file_data) {
-            println!("   🔊 Audio track extracted: {} bytes", audio_data.len());
-            self.audio_data = Some(audio_data);
-        } else {
-            println!("   ⚠️ No audio track found or extraction failed");
-        }
+        // 获取 SPS/PPS
+        let (sps, pps) = self.extract_sps_pps_manual(path)?;
         
-        // 初始化 H.264 解码器
-        let mut decoder = openh264::decoder::Decoder::new()
-            .map_err(|e| format!("Failed to create decoder: {:?}", e))?;
+        // 创建 H.264 解码器
+        let mut decoder = H264Decoder::new()
+            .map_err(|e| format!("H264 decoder init error: {:?}", e))?;
         
-        // 发送 SPS
-        for sps in &sps_list {
-            let mut nal = vec![0x00, 0x00, 0x00, 0x01];
-            nal.extend_from_slice(sps);
-            let _ = decoder.decode(&nal);
-        }
-        // 发送 PPS
-        for pps in &pps_list {
-            let mut nal = vec![0x00, 0x00, 0x00, 0x01];
-            nal.extend_from_slice(pps);
-            let _ = decoder.decode(&nal);
-        }
+        // 构建样本偏移表
+        let sample_offsets = self.build_sample_offsets(&sample_sizes, &chunk_offsets, &sample_to_chunk);
         
-        // 解析样本表获取样本位置和大小
-        let samples = self.parse_sample_table(&file_data)?;
-        println!("   Parsed {} samples from stbl", samples.len());
+        // 计算每个样本的时间戳
+        let timestamps = self.build_timestamps(&sample_durations, timescale);
         
-        // 找到 mdat box 的位置
-        let mdat_offset = self.find_mdat_offset(&file_data)?;
-        
-        // 限制解码帧数（解码全部帧，最多 3000 帧约 2 分钟 @ 24fps）
-        let max_frames = 3000.min(samples.len());
+        // 解码帧
+        let start_time = Instant::now();
         let mut decoded_count = 0;
+        let mut skipped_count = 0;
         
-        for (i, (offset, size)) in samples.iter().take(max_frames).enumerate() {
-            let abs_offset = mdat_offset + *offset;
-            if abs_offset + size > file_data.len() {
+        for (sample_idx, &(offset, size)) in sample_offsets.iter().enumerate() {
+            if offset as usize + size as usize > data.len() {
                 continue;
             }
             
-            let sample_data = &file_data[abs_offset..abs_offset + size];
-            let timestamp = i as f64 / self.fps;
+            let sample_data = &data[offset as usize..(offset as usize + size as usize)];
+            let timestamp = timestamps.get(sample_idx).copied().unwrap_or(0.0);
+            let is_sync = sync_samples.is_empty() || sync_samples.contains(&((sample_idx + 1) as u32));
             
-            if let Some(frame) = self.decode_h264_sample_with_nal_size(&mut decoder, sample_data, nal_length_size)? {
-                self.frames.push(VideoFrame {
-                    data: frame,
-                    width: self.width,
-                    height: self.height,
-                    timestamp,
-                });
-                decoded_count += 1;
+            // 构建 NAL 单元
+            let mut nal_data = Vec::new();
+            
+            if is_sync {
+                nal_data.extend_from_slice(&[0, 0, 0, 1]);
+                nal_data.extend_from_slice(&sps);
+                nal_data.extend_from_slice(&[0, 0, 0, 1]);
+                nal_data.extend_from_slice(&pps);
+            }
+            
+            // 解析 AVCC 格式
+            let mut off = 0;
+            while off + 4 <= sample_data.len() {
+                let nal_size = u32::from_be_bytes([
+                    sample_data[off], sample_data[off+1], sample_data[off+2], sample_data[off+3]
+                ]) as usize;
+                off += 4;
+                
+                if off + nal_size <= sample_data.len() {
+                    nal_data.extend_from_slice(&[0, 0, 0, 1]);
+                    nal_data.extend_from_slice(&sample_data[off..off + nal_size]);
+                    off += nal_size;
+                } else {
+                    break;
+                }
+            }
+            
+            // 解码
+            match decoder.decode(&nal_data) {
+                Ok(Some(yuv)) => {
+                    let rgba = self.yuv_to_rgba(&yuv);
+                    self.frames.push(VideoFrame {
+                        data: rgba,
+                        width: self.width,
+                        height: self.height,
+                        timestamp,
+                    });
+                    decoded_count += 1;
+                }
+                Ok(None) => skipped_count += 1,
+                Err(_) => skipped_count += 1,
+            }
+            
+            if decoded_count >= 3600 {
+                println!("   ⚠️ Reached max frame limit");
+                break;
             }
         }
         
+        let decode_time = start_time.elapsed();
+        
         if !self.frames.is_empty() {
             self.is_loaded = true;
-            println!("✅ Video loaded: {} frames decoded", self.frames.len());
+            println!("✅ Video loaded: {} frames decoded, {} skipped ({:.1}s)", 
+                decoded_count, skipped_count, decode_time.as_secs_f64());
         } else {
-            return Err(format!("No frames decoded (tried {} samples)", max_frames));
+            return Err(format!("No frames decoded (skipped {})", skipped_count));
         }
         
         Ok(())
     }
     
-    /// 提取音频轨道数据（返回原始 MP4 文件用于 rodio 解码）
-    fn extract_audio_track(&self, _data: &[u8]) -> Result<Vec<u8>, String> {
-        // rodio 的 Decoder 可以直接解码 MP4 文件中的音频
-        // 我们直接返回整个文件，让 rodio 处理
-        // 这是最简单的方式，因为 rodio 内部使用 symphonia 支持 MP4/AAC
-        
-        // 检查是否有音频轨道（查找 mp4a box）
-        let has_audio = self.find_box(_data, b"mp4a").is_some() 
-            || self.find_box(_data, b"esds").is_some();
-        
-        if has_audio {
-            Ok(_data.to_vec())
-        } else {
-            Err("No audio track found".to_string())
-        }
-    }
-    
-    /// 解析视频信息
-    fn parse_video_info(&self, data: &[u8]) -> Result<(u32, u32, u32, u64, u32), String> {
-        // 查找 tkhd box 获取尺寸
-        let mut width = 960u32;
-        let mut height = 400u32;
-        
-        // 查找 "tkhd" 
-        if let Some(pos) = self.find_box(data, b"tkhd") {
-            // tkhd box 结构: version(1) + flags(3) + ... + width(4) + height(4) at end
-            let box_start = pos - 4;
-            let box_size = u32::from_be_bytes([data[box_start], data[box_start+1], data[box_start+2], data[box_start+3]]) as usize;
-            let box_end = box_start + box_size;
-            
-            if box_end >= 8 && box_end <= data.len() {
-                // width 和 height 在 tkhd 末尾，是 16.16 定点数
-                let w_bytes = &data[box_end-8..box_end-4];
-                let h_bytes = &data[box_end-4..box_end];
-                width = (u32::from_be_bytes([w_bytes[0], w_bytes[1], w_bytes[2], w_bytes[3]]) >> 16) as u32;
-                height = (u32::from_be_bytes([h_bytes[0], h_bytes[1], h_bytes[2], h_bytes[3]]) >> 16) as u32;
-            }
-        }
-        
-        // 查找 mdhd box 获取 timescale 和 duration
-        let mut timescale = 24000u32;
-        let mut duration = 0u64;
-        
-        if let Some(pos) = self.find_box(data, b"mdhd") {
-            let version = data.get(pos + 4).copied().unwrap_or(0);
-            if version == 0 {
-                // 32-bit: skip version(1) + flags(3) + creation(4) + modification(4)
-                let ts_offset = pos + 4 + 12;
-                let dur_offset = ts_offset + 4;
-                if dur_offset + 4 <= data.len() {
-                    timescale = u32::from_be_bytes([data[ts_offset], data[ts_offset+1], data[ts_offset+2], data[ts_offset+3]]);
-                    duration = u32::from_be_bytes([data[dur_offset], data[dur_offset+1], data[dur_offset+2], data[dur_offset+3]]) as u64;
-                }
-            } else {
-                // 64-bit: skip version(1) + flags(3) + creation(8) + modification(8)
-                let ts_offset = pos + 4 + 20;
-                let dur_offset = ts_offset + 4;
-                if dur_offset + 8 <= data.len() {
-                    timescale = u32::from_be_bytes([data[ts_offset], data[ts_offset+1], data[ts_offset+2], data[ts_offset+3]]);
-                    duration = u64::from_be_bytes([
-                        data[dur_offset], data[dur_offset+1], data[dur_offset+2], data[dur_offset+3],
-                        data[dur_offset+4], data[dur_offset+5], data[dur_offset+6], data[dur_offset+7]
-                    ]);
-                }
-            }
-        }
-        
-        // 查找 stsz box 获取样本数量
-        let mut sample_count = 0u32;
-        if let Some(pos) = self.find_box(data, b"stsz") {
-            // stsz: version(1) + flags(3) + sample_size(4) + sample_count(4)
-            let count_offset = pos + 4 + 8;
-            if count_offset + 4 <= data.len() {
-                sample_count = u32::from_be_bytes([data[count_offset], data[count_offset+1], data[count_offset+2], data[count_offset+3]]);
-            }
-        }
-        
-        Ok((width, height, timescale, duration, sample_count))
-    }
-    
-    /// 解析样本表
-    fn parse_sample_table(&self, data: &[u8]) -> Result<Vec<(usize, usize)>, String> {
-        let mut samples = Vec::new();
-        
-        // 解析 stsz (sample sizes)
-        let mut sample_sizes = Vec::new();
-        if let Some(pos) = self.find_box(data, b"stsz") {
-            let offset = pos + 4; // skip "stsz"
-            if offset + 12 <= data.len() {
-                let default_size = u32::from_be_bytes([data[offset+4], data[offset+5], data[offset+6], data[offset+7]]) as usize;
-                let count = u32::from_be_bytes([data[offset+8], data[offset+9], data[offset+10], data[offset+11]]) as usize;
-                
-                if default_size > 0 {
-                    sample_sizes = vec![default_size; count];
-                } else {
-                    let mut i = offset + 12;
-                    for _ in 0..count {
-                        if i + 4 > data.len() { break; }
-                        let size = u32::from_be_bytes([data[i], data[i+1], data[i+2], data[i+3]]) as usize;
-                        sample_sizes.push(size);
-                        i += 4;
-                    }
-                }
-            }
-        }
-        
-        // 解析 stco/co64 (chunk offsets)
-        let mut chunk_offsets = Vec::new();
-        if let Some(pos) = self.find_box(data, b"stco") {
-            let offset = pos + 4;
-            if offset + 8 <= data.len() {
-                let count = u32::from_be_bytes([data[offset+4], data[offset+5], data[offset+6], data[offset+7]]) as usize;
-                let mut i = offset + 8;
-                for _ in 0..count {
-                    if i + 4 > data.len() { break; }
-                    let off = u32::from_be_bytes([data[i], data[i+1], data[i+2], data[i+3]]) as usize;
-                    chunk_offsets.push(off);
-                    i += 4;
-                }
-            }
-        } else if let Some(pos) = self.find_box(data, b"co64") {
-            let offset = pos + 4;
-            if offset + 8 <= data.len() {
-                let count = u32::from_be_bytes([data[offset+4], data[offset+5], data[offset+6], data[offset+7]]) as usize;
-                let mut i = offset + 8;
-                for _ in 0..count {
-                    if i + 8 > data.len() { break; }
-                    let off = u64::from_be_bytes([
-                        data[i], data[i+1], data[i+2], data[i+3],
-                        data[i+4], data[i+5], data[i+6], data[i+7]
-                    ]) as usize;
-                    chunk_offsets.push(off);
-                    i += 8;
-                }
-            }
-        }
-        
-        // 解析 stsc (sample-to-chunk)
-        let mut stsc_entries = Vec::new();
-        if let Some(pos) = self.find_box(data, b"stsc") {
-            let offset = pos + 4;
-            if offset + 8 <= data.len() {
-                let count = u32::from_be_bytes([data[offset+4], data[offset+5], data[offset+6], data[offset+7]]) as usize;
-                let mut i = offset + 8;
-                for _ in 0..count {
-                    if i + 12 > data.len() { break; }
-                    let first_chunk = u32::from_be_bytes([data[i], data[i+1], data[i+2], data[i+3]]) as usize;
-                    let samples_per_chunk = u32::from_be_bytes([data[i+4], data[i+5], data[i+6], data[i+7]]) as usize;
-                    stsc_entries.push((first_chunk, samples_per_chunk));
-                    i += 12;
-                }
-            }
-        }
-        
-        // 构建样本列表
-        if chunk_offsets.is_empty() || sample_sizes.is_empty() {
-            return Err("Missing chunk offsets or sample sizes".to_string());
-        }
-        
+    /// 构建样本偏移表
+    fn build_sample_offsets(&self, sample_sizes: &[u32], chunk_offsets: &[u64], sample_to_chunk: &[(u32, u32, u32)]) -> Vec<(u64, u32)> {
+        let mut result = Vec::new();
         let mut sample_idx = 0;
-        let mut stsc_idx = 0;
         
         for (chunk_idx, &chunk_offset) in chunk_offsets.iter().enumerate() {
-            // 确定这个 chunk 有多少样本
-            while stsc_idx + 1 < stsc_entries.len() && stsc_entries[stsc_idx + 1].0 <= chunk_idx + 1 {
-                stsc_idx += 1;
-            }
-            let samples_in_chunk = if stsc_idx < stsc_entries.len() {
-                stsc_entries[stsc_idx].1
-            } else {
-                1
-            };
+            let chunk_num = (chunk_idx + 1) as u32;
             
-            let mut offset_in_chunk = 0;
-            for _ in 0..samples_in_chunk {
-                if sample_idx >= sample_sizes.len() { break; }
-                let size = sample_sizes[sample_idx];
-                samples.push((chunk_offset + offset_in_chunk, size));
-                offset_in_chunk += size;
-                sample_idx += 1;
-            }
-        }
-        
-        Ok(samples)
-    }
-    
-    /// 查找 mdat box 的数据起始位置
-    fn find_mdat_offset(&self, data: &[u8]) -> Result<usize, String> {
-        // mdat 数据直接跟在 box header 后面
-        // 返回 0 因为 stco 已经是绝对偏移
-        Ok(0)
-    }
-    
-    /// 查找 box 位置
-    fn find_box(&self, data: &[u8], box_type: &[u8; 4]) -> Option<usize> {
-        for i in 0..data.len().saturating_sub(4) {
-            if &data[i..i+4] == box_type {
-                return Some(i);
-            }
-        }
-        None
-    }
-    
-    /// 在文件中查找 avcC box
-    fn find_avcc_box(&self, data: &[u8]) -> Result<Vec<u8>, String> {
-        // 搜索 "avcC" 标记
-        let pattern = b"avcC";
-        for i in 0..data.len().saturating_sub(4) {
-            if &data[i..i+4] == pattern {
-                // 找到 avcC，向前读取 box 大小
-                if i >= 4 {
-                    let box_start = i - 4;
-                    let box_size = u32::from_be_bytes([
-                        data[box_start], data[box_start+1], 
-                        data[box_start+2], data[box_start+3]
-                    ]) as usize;
-                    
-                    if box_start + box_size <= data.len() {
-                        // 返回 avcC 内容（跳过 size 和 type）
-                        return Ok(data[i+4..box_start+box_size].to_vec());
+            // 找到这个 chunk 的 samples_per_chunk
+            let mut samples_per_chunk = 1u32;
+            for (i, &(first_chunk, spc, _)) in sample_to_chunk.iter().enumerate() {
+                if chunk_num >= first_chunk {
+                    let next_first = sample_to_chunk.get(i + 1).map(|x| x.0).unwrap_or(u32::MAX);
+                    if chunk_num < next_first {
+                        samples_per_chunk = spc;
+                        break;
                     }
                 }
             }
-        }
-        Err("avcC box not found".to_string())
-    }
-    
-    /// 解析 AVCC 数据
-    fn parse_avcc(&self, data: &[u8]) -> Result<(Vec<Vec<u8>>, Vec<Vec<u8>>, usize), String> {
-        if data.len() < 7 {
-            return Err("AVCC data too short".to_string());
-        }
-        
-        let mut sps_list = Vec::new();
-        let mut pps_list = Vec::new();
-        
-        // configurationVersion = data[0]
-        // AVCProfileIndication = data[1]
-        // profile_compatibility = data[2]
-        // AVCLevelIndication = data[3]
-        let nal_length_size = ((data[4] & 0x03) + 1) as usize;
-        let num_sps = (data[5] & 0x1F) as usize;
-        
-        let mut offset = 6;
-        
-        // 读取 SPS
-        for _ in 0..num_sps {
-            if offset + 2 > data.len() {
-                break;
-            }
-            let sps_len = u16::from_be_bytes([data[offset], data[offset+1]]) as usize;
-            offset += 2;
             
-            if offset + sps_len > data.len() {
-                break;
+            let mut offset = chunk_offset;
+            for _ in 0..samples_per_chunk {
+                if sample_idx >= sample_sizes.len() {
+                    break;
+                }
+                let size = sample_sizes[sample_idx];
+                result.push((offset, size));
+                offset += size as u64;
+                sample_idx += 1;
             }
-            sps_list.push(data[offset..offset+sps_len].to_vec());
-            offset += sps_len;
-        }
-        
-        // 读取 PPS 数量
-        if offset >= data.len() {
-            return Ok((sps_list, pps_list, nal_length_size));
-        }
-        let num_pps = data[offset] as usize;
-        offset += 1;
-        
-        // 读取 PPS
-        for _ in 0..num_pps {
-            if offset + 2 > data.len() {
-                break;
-            }
-            let pps_len = u16::from_be_bytes([data[offset], data[offset+1]]) as usize;
-            offset += 2;
-            
-            if offset + pps_len > data.len() {
-                break;
-            }
-            pps_list.push(data[offset..offset+pps_len].to_vec());
-            offset += pps_len;
-        }
-        
-        Ok((sps_list, pps_list, nal_length_size))
-    }
-    
-    /// 解码 H.264 样本（指定 NAL 长度大小）
-    fn decode_h264_sample_with_nal_size(
-        &self, 
-        decoder: &mut openh264::decoder::Decoder, 
-        data: &[u8],
-        nal_length_size: usize,
-    ) -> Result<Option<Vec<u8>>, String> {
-        let annex_b = self.avcc_to_annex_b_with_size(data, nal_length_size);
-        
-        match decoder.decode(&annex_b) {
-            Ok(Some(yuv)) => {
-                let rgba = self.yuv_to_rgba(&yuv);
-                Ok(Some(rgba))
-            }
-            Ok(None) => Ok(None),
-            Err(_) => Ok(None),
-        }
-    }
-    
-    /// AVCC 格式转 Annex B 格式（指定 NAL 长度大小）
-    fn avcc_to_annex_b_with_size(&self, data: &[u8], nal_length_size: usize) -> Vec<u8> {
-        let mut result = Vec::new();
-        let mut i = 0;
-        
-        while i + nal_length_size <= data.len() {
-            // 读取 NAL 单元长度
-            let nal_len = match nal_length_size {
-                1 => data[i] as usize,
-                2 => u16::from_be_bytes([data[i], data[i+1]]) as usize,
-                3 => ((data[i] as usize) << 16) | ((data[i+1] as usize) << 8) | (data[i+2] as usize),
-                4 => u32::from_be_bytes([data[i], data[i+1], data[i+2], data[i+3]]) as usize,
-                _ => break,
-            };
-            i += nal_length_size;
-            
-            if i + nal_len > data.len() || nal_len == 0 {
-                break;
-            }
-            
-            // 添加起始码
-            result.extend_from_slice(&[0x00, 0x00, 0x00, 0x01]);
-            result.extend_from_slice(&data[i..i + nal_len]);
-            i += nal_len;
         }
         
         result
     }
     
+    /// 构建时间戳表
+    fn build_timestamps(&self, sample_durations: &[(u32, u32)], timescale: u32) -> Vec<f64> {
+        let mut timestamps = Vec::new();
+        let mut current_time = 0u64;
+        
+        for &(count, delta) in sample_durations {
+            for _ in 0..count {
+                timestamps.push(current_time as f64 / timescale as f64);
+                current_time += delta as u64;
+            }
+        }
+        
+        timestamps
+    }
+
+    /// 从 MP4 提取 SPS/PPS (手动解析)
+    fn extract_sps_pps_manual(&self, path: &PathBuf) -> Result<(Vec<u8>, Vec<u8>), String> {
+        let data = std::fs::read(path).map_err(|e| format!("Cannot read file: {}", e))?;
+        
+        // 搜索 avcC box
+        let avcc_marker = b"avcC";
+        let mut pos = 0;
+        while pos + 4 < data.len() {
+            if &data[pos..pos+4] == avcc_marker {
+                // 找到 avcC，解析内容
+                // avcC 格式:
+                // 1 byte: configurationVersion
+                // 1 byte: AVCProfileIndication
+                // 1 byte: profile_compatibility
+                // 1 byte: AVCLevelIndication
+                // 1 byte: lengthSizeMinusOne (低2位)
+                // 1 byte: numOfSequenceParameterSets (低5位)
+                // 然后是 SPS 列表
+                // 1 byte: numOfPictureParameterSets
+                // 然后是 PPS 列表
+                
+                let avcc_start = pos + 4;
+                if avcc_start + 6 >= data.len() {
+                    pos += 1;
+                    continue;
+                }
+                
+                let num_sps = data[avcc_start + 5] & 0x1F;
+                let mut offset = avcc_start + 6;
+                
+                let mut sps = Vec::new();
+                for _ in 0..num_sps {
+                    if offset + 2 > data.len() { break; }
+                    let sps_len = u16::from_be_bytes([data[offset], data[offset + 1]]) as usize;
+                    offset += 2;
+                    if offset + sps_len > data.len() { break; }
+                    sps = data[offset..offset + sps_len].to_vec();
+                    offset += sps_len;
+                }
+                
+                if offset >= data.len() {
+                    pos += 1;
+                    continue;
+                }
+                
+                let num_pps = data[offset];
+                offset += 1;
+                
+                let mut pps = Vec::new();
+                for _ in 0..num_pps {
+                    if offset + 2 > data.len() { break; }
+                    let pps_len = u16::from_be_bytes([data[offset], data[offset + 1]]) as usize;
+                    offset += 2;
+                    if offset + pps_len > data.len() { break; }
+                    pps = data[offset..offset + pps_len].to_vec();
+                    offset += pps_len;
+                }
+                
+                if !sps.is_empty() && !pps.is_empty() {
+                    println!("   Found SPS ({} bytes), PPS ({} bytes) via manual parse", sps.len(), pps.len());
+                    return Ok((sps, pps));
+                }
+            }
+            pos += 1;
+        }
+        
+        Err("Cannot find avcC in file".to_string())
+    }
+    
     /// YUV 转 RGBA
     fn yuv_to_rgba(&self, yuv: &openh264::decoder::DecodedYUV) -> Vec<u8> {
+        use openh264::formats::YUVSource;
+        
         let (width, height) = yuv.dimensions();
         let mut rgba = vec![0u8; width * height * 4];
         
@@ -562,23 +535,92 @@ impl VideoPlayer {
                 let u = u_data.get(u_idx).copied().unwrap_or(128) as f32 - 128.0;
                 let v = v_data.get(v_idx).copied().unwrap_or(128) as f32 - 128.0;
                 
-                // YUV to RGB conversion (BT.601)
                 let r = (y + 1.402 * v).clamp(0.0, 255.0) as u8;
                 let g = (y - 0.344 * u - 0.714 * v).clamp(0.0, 255.0) as u8;
                 let b = (y + 1.772 * u).clamp(0.0, 255.0) as u8;
                 
-                let rgba_idx = (row * width + col) * 4;
-                rgba[rgba_idx] = r;
-                rgba[rgba_idx + 1] = g;
-                rgba[rgba_idx + 2] = b;
-                rgba[rgba_idx + 3] = 255;
+                let idx = (row * width + col) * 4;
+                rgba[idx] = r;
+                rgba[idx + 1] = g;
+                rgba[idx + 2] = b;
+                rgba[idx + 3] = 255;
             }
         }
         
         rgba
     }
     
-    /// 获取当前帧（基于播放时间同步）
+    /// 解码音频
+    fn decode_audio(&mut self, path: &PathBuf) -> Result<(), String> {
+        let file = File::open(path).map_err(|e| format!("Cannot open: {}", e))?;
+        let mss = MediaSourceStream::new(Box::new(file), Default::default());
+        
+        let mut hint = Hint::new();
+        hint.with_extension("mp4");
+        
+        let probed = symphonia::default::get_probe()
+            .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())
+            .map_err(|e| format!("Probe error: {}", e))?;
+        
+        let mut format = probed.format;
+        
+        // 查找音频轨道
+        let track = format.tracks()
+            .iter()
+            .find(|t| t.codec_params.codec != symphonia::core::codecs::CODEC_TYPE_NULL)
+            .ok_or("No audio track")?;
+        
+        let track_id = track.id;
+        let sample_rate = track.codec_params.sample_rate.unwrap_or(44100);
+        let channels = track.codec_params.channels.map(|c| c.count() as u16).unwrap_or(2);
+        
+        println!("   Audio: {} Hz, {} channels", sample_rate, channels);
+        
+        // 创建解码器
+        let mut decoder = symphonia::default::get_codecs()
+            .make(&track.codec_params, &DecoderOptions::default())
+            .map_err(|e| format!("Decoder error: {}", e))?;
+        
+        let mut audio_buffer = AudioBuffer::new();
+        audio_buffer.sample_rate = sample_rate;
+        audio_buffer.channels = channels;
+        
+        // 解码所有音频包
+        loop {
+            let packet = match format.next_packet() {
+                Ok(p) => p,
+                Err(symphonia::core::errors::Error::IoError(ref e)) 
+                    if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
+                Err(_) => break,
+            };
+            
+            if packet.track_id() != track_id {
+                continue;
+            }
+            
+            match decoder.decode(&packet) {
+                Ok(decoded) => {
+                    let spec = *decoded.spec();
+                    let duration = decoded.capacity() as u64;
+                    let mut sample_buf = SampleBuffer::<f32>::new(duration, spec);
+                    sample_buf.copy_interleaved_ref(decoded);
+                    audio_buffer.samples.extend_from_slice(sample_buf.samples());
+                }
+                Err(_) => continue,
+            }
+        }
+        
+        if !audio_buffer.samples.is_empty() {
+            let duration_secs = audio_buffer.samples.len() as f64 
+                / (audio_buffer.sample_rate as f64 * audio_buffer.channels as f64);
+            println!("✅ Audio loaded: {:.1}s ({} samples)", duration_secs, audio_buffer.samples.len());
+            self.audio_buffer = Some(audio_buffer);
+        }
+        
+        Ok(())
+    }
+
+    /// 获取当前帧
     pub fn get_current_frame(&mut self) -> Option<&VideoFrame> {
         if !self.is_loaded || self.frames.is_empty() {
             return None;
@@ -586,9 +628,7 @@ impl VideoPlayer {
         
         if self.is_playing {
             if let Some(start_time) = self.play_start_time {
-                // 计算从播放开始经过的时间
                 let elapsed = start_time.elapsed().as_secs_f64();
-                // 计算当前应该显示的帧
                 let start_timestamp = self.frames.get(self.play_start_frame)
                     .map(|f| f.timestamp)
                     .unwrap_or(0.0);
@@ -609,16 +649,14 @@ impl VideoPlayer {
                 // 检查是否播放完毕
                 if self.current_frame >= self.frames.len() - 1 {
                     if self.loop_play {
-                        // 循环播放
                         self.current_frame = 0;
                         self.play_start_frame = 0;
                         self.play_start_time = Some(Instant::now());
-                        // 重新播放音频
                         self.restart_audio();
                     } else {
                         self.current_frame = self.frames.len() - 1;
                         self.is_playing = false;
-                        self.stop_audio();
+                        Self::stop_audio_static();
                     }
                 }
             }
@@ -633,9 +671,6 @@ impl VideoPlayer {
             self.is_playing = true;
             self.play_start_time = Some(Instant::now());
             self.play_start_frame = self.current_frame;
-            self.last_frame_time = Instant::now();
-            
-            // 开始播放音频
             self.start_audio();
         }
     }
@@ -644,53 +679,57 @@ impl VideoPlayer {
     pub fn pause(&mut self) {
         self.is_playing = false;
         self.play_start_time = None;
-        self.stop_audio();
+        Self::stop_audio_static();
     }
     
     /// 开始播放音频
     fn start_audio(&self) {
-        if self.muted {
-            return;
-        }
+        if self.muted { return; }
         
-        let audio_data = match &self.audio_data {
-            Some(data) => data.clone(),
+        let audio_buffer = match &self.audio_buffer {
+            Some(ab) => ab,
             None => return,
         };
         
-        // 停止之前的音频
         Self::stop_audio_static();
         
-        // 计算跳过时间
-        let skip_duration = self.frames.get(self.current_frame)
+        // 计算跳过的样本数
+        let skip_time = self.frames.get(self.current_frame)
             .map(|f| f.timestamp)
             .unwrap_or(0.0);
+        let skip_samples = (skip_time * audio_buffer.sample_rate as f64 * audio_buffer.channels as f64) as usize;
         
-        // 创建音频输出流
-        if let Ok((stream, stream_handle)) = OutputStream::try_default() {
-            if let Ok(sink) = Sink::try_new(&stream_handle) {
-                let cursor = Cursor::new(audio_data);
-                if let Ok(source) = Decoder::new(cursor) {
-                    if skip_duration > 0.1 {
-                        sink.append(source.skip_duration(std::time::Duration::from_secs_f64(skip_duration)));
-                    } else {
+        // 创建音频源
+        let samples: Vec<f32> = if skip_samples < audio_buffer.samples.len() {
+            audio_buffer.samples[skip_samples..].to_vec()
+        } else {
+            audio_buffer.samples.clone()
+        };
+        
+        let sample_rate = audio_buffer.sample_rate;
+        let channels = audio_buffer.channels;
+        
+        match OutputStream::try_default() {
+            Ok((stream, stream_handle)) => {
+                match Sink::try_new(&stream_handle) {
+                    Ok(sink) => {
+                        let source = SamplesSource::new(samples, sample_rate, channels);
                         sink.append(source);
+                        sink.play();
+                        
+                        AUDIO_STREAM.with(|cell| {
+                            *cell.borrow_mut() = Some((stream, sink));
+                        });
+                        
+                        println!("🔊 Audio playback started");
                     }
-                    
-                    sink.play();
-                    
-                    // 存储到 thread_local
-                    AUDIO_STREAM.with(|cell| {
-                        *cell.borrow_mut() = Some((stream, sink));
-                    });
-                    
-                    println!("🔊 Audio playback started");
+                    Err(e) => println!("❌ Sink error: {:?}", e),
                 }
             }
+            Err(e) => println!("❌ Audio output error: {:?}", e),
         }
     }
     
-    /// 停止音频（静态方法）
     fn stop_audio_static() {
         AUDIO_STREAM.with(|cell| {
             if let Some((_, ref sink)) = *cell.borrow() {
@@ -700,35 +739,80 @@ impl VideoPlayer {
         });
     }
     
-    /// 停止音频
-    fn stop_audio(&mut self) {
-        Self::stop_audio_static();
-    }
-    
-    /// 重新开始音频（用于循环播放）
     fn restart_audio(&self) {
         Self::stop_audio_static();
         
-        let audio_data = match &self.audio_data {
-            Some(data) => data.clone(),
+        let audio_buffer = match &self.audio_buffer {
+            Some(ab) => ab,
             None => return,
         };
         
+        let samples = audio_buffer.samples.clone();
+        let sample_rate = audio_buffer.sample_rate;
+        let channels = audio_buffer.channels;
+        
         if let Ok((stream, stream_handle)) = OutputStream::try_default() {
             if let Ok(sink) = Sink::try_new(&stream_handle) {
-                let cursor = Cursor::new(audio_data);
-                if let Ok(source) = Decoder::new(cursor) {
-                    sink.append(source);
-                    sink.play();
-                    
-                    AUDIO_STREAM.with(|cell| {
-                        *cell.borrow_mut() = Some((stream, sink));
-                    });
-                }
+                let source = SamplesSource::new(samples, sample_rate, channels);
+                sink.append(source);
+                sink.play();
+                AUDIO_STREAM.with(|cell| {
+                    *cell.borrow_mut() = Some((stream, sink));
+                });
             }
         }
     }
 }
+
+/// 自定义音频源，用于播放解码后的样本
+struct SamplesSource {
+    samples: Vec<f32>,
+    position: usize,
+    sample_rate: u32,
+    channels: u16,
+}
+
+impl SamplesSource {
+    fn new(samples: Vec<f32>, sample_rate: u32, channels: u16) -> Self {
+        Self { samples, position: 0, sample_rate, channels }
+    }
+}
+
+impl Iterator for SamplesSource {
+    type Item = f32;
+    
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.position < self.samples.len() {
+            let sample = self.samples[self.position];
+            self.position += 1;
+            Some(sample)
+        } else {
+            None
+        }
+    }
+}
+
+impl Source for SamplesSource {
+    fn current_frame_len(&self) -> Option<usize> {
+        Some(self.samples.len() - self.position)
+    }
+    
+    fn channels(&self) -> u16 {
+        self.channels
+    }
+    
+    fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
+    
+    fn total_duration(&self) -> Option<std::time::Duration> {
+        let total_samples = self.samples.len() / self.channels as usize;
+        Some(std::time::Duration::from_secs_f64(
+            total_samples as f64 / self.sample_rate as f64
+        ))
+    }
+}
+
 
 /// 全局视频播放器缓存
 static VIDEO_PLAYERS: OnceLock<Arc<Mutex<HashMap<String, VideoPlayer>>>> = OnceLock::new();
@@ -846,7 +930,6 @@ impl VideoComponent {
         let autoplay = node.get_attr("autoplay").map(|v| v == "true" || v == "{{true}}").unwrap_or(false);
         let loop_play = node.get_attr("loop").map(|v| v == "true" || v == "{{true}}").unwrap_or(false);
         
-        // 默认视频大小 300x225 (4:3)
         let default_width = 300.0;
         let default_height = 225.0;
         
@@ -857,13 +940,11 @@ impl VideoComponent {
             ts.size.height = length(default_height * sf);
         }
         
-        // 视频背景
         ns.background_color = Some(Color::BLACK);
         ns.border_radius = 4.0 * sf;
         
         let tn = ctx.taffy.new_leaf(ts).unwrap();
         
-        // 预加载视频
         if !src.is_empty() {
             get_or_create_player(src, autoplay, loop_play);
         }
@@ -883,17 +964,12 @@ impl VideoComponent {
         node: &RenderNode, 
         canvas: &mut Canvas, 
         text_renderer: Option<&TextRenderer>,
-        x: f32, 
-        y: f32, 
-        w: f32, 
-        h: f32, 
-        sf: f32
+        x: f32, y: f32, w: f32, h: f32, sf: f32
     ) {
         let style = &node.style;
         let radius = style.border_radius;
         let src = &node.text;
         
-        // 绘制背景
         let bg_paint = Paint::new()
             .with_color(Color::BLACK)
             .with_style(PaintStyle::Fill)
@@ -907,43 +983,28 @@ impl VideoComponent {
             canvas.draw_rect(&GeoRect::new(x, y, w, h), &bg_paint);
         }
         
-        // 尝试获取视频帧
         if !src.is_empty() {
             if let Some((frame_data, frame_w, frame_h)) = get_video_frame(src) {
-                // 绘制视频帧
-                canvas.draw_image(
-                    &frame_data,
-                    frame_w,
-                    frame_h,
-                    x, y, w, h,
-                    "aspectFit",
-                    radius,
-                );
-                
-                // 绘制控制条
+                canvas.draw_image(&frame_data, frame_w, frame_h, x, y, w, h, "aspectFit", radius);
                 Self::draw_controls(canvas, text_renderer, src, x, y, w, h, sf);
                 return;
             }
         }
         
-        // 如果没有视频帧，绘制占位符
         Self::draw_placeholder(canvas, x, y, w, h, sf);
     }
     
-    /// 绘制视频占位符
     fn draw_placeholder(canvas: &mut Canvas, x: f32, y: f32, w: f32, h: f32, sf: f32) {
         let cx = x + w / 2.0;
         let cy = y + h / 2.0;
         let btn_size = 50.0 * sf;
         
-        // 半透明圆形背景
         let bg_paint = Paint::new()
             .with_color(Color::new(0, 0, 0, 128))
             .with_style(PaintStyle::Fill)
             .with_anti_alias(true);
         canvas.draw_circle(cx, cy, btn_size / 2.0, &bg_paint);
         
-        // 播放三角形
         let tri_size = btn_size * 0.35;
         let mut path = Path::new();
         path.move_to(cx - tri_size * 0.4, cy - tri_size * 0.6);
@@ -958,18 +1019,15 @@ impl VideoComponent {
         canvas.draw_path(&path, &tri_paint);
     }
     
-    /// 绘制控制条
     fn draw_controls(
         canvas: &mut Canvas, 
         text_renderer: Option<&TextRenderer>,
         src: &str,
-        x: f32, y: f32, w: f32, h: f32, 
-        sf: f32
+        x: f32, y: f32, w: f32, h: f32, sf: f32
     ) {
         let bar_height = 36.0 * sf;
         let bar_y = y + h - bar_height;
         
-        // 半透明背景
         let bg_paint = Paint::new()
             .with_color(Color::new(0, 0, 0, 160))
             .with_style(PaintStyle::Fill);
@@ -986,7 +1044,6 @@ impl VideoComponent {
             .with_anti_alias(true);
         
         if is_playing {
-            // 暂停图标
             let bar_w = 4.0 * sf;
             let bar_h = btn_size * 0.6;
             let gap = 6.0 * sf;
@@ -1001,7 +1058,6 @@ impl VideoComponent {
                 bar_w, bar_h
             ), &btn_paint);
         } else {
-            // 播放图标
             let tri_size = btn_size * 0.5;
             let mut path = Path::new();
             let cx = btn_x + btn_size / 2.0;
@@ -1013,32 +1069,25 @@ impl VideoComponent {
             canvas.draw_path(&path, &btn_paint);
         }
         
-        // 进度条
         if let Some((current, duration)) = get_video_progress(src) {
             let progress_x = btn_x + btn_size + 12.0 * sf;
             let progress_w = w - progress_x - 80.0 * sf - x;
             let progress_h = 4.0 * sf;
             let progress_y = bar_y + (bar_height - progress_h) / 2.0;
             
-            // 进度条背景
             let track_paint = Paint::new()
                 .with_color(Color::new(255, 255, 255, 80))
                 .with_style(PaintStyle::Fill);
             canvas.draw_rect(&GeoRect::new(progress_x, progress_y, progress_w, progress_h), &track_paint);
             
-            // 进度条填充
             let progress = if duration > 0.0 { current / duration } else { 0.0 };
             let fill_paint = Paint::new()
                 .with_color(Color::from_hex(0x07C160))
                 .with_style(PaintStyle::Fill);
             canvas.draw_rect(&GeoRect::new(progress_x, progress_y, progress_w * progress as f32, progress_h), &fill_paint);
             
-            // 时间文本
             if let Some(tr) = text_renderer {
-                let time_text = format!("{} / {}", 
-                    Self::format_time(current), 
-                    Self::format_time(duration)
-                );
+                let time_text = format!("{} / {}", Self::format_time(current), Self::format_time(duration));
                 let time_x = progress_x + progress_w + 8.0 * sf;
                 let time_y = bar_y + bar_height / 2.0 - 6.0 * sf;
                 let text_paint = Paint::new().with_color(Color::WHITE);

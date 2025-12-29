@@ -26,13 +26,37 @@ pub struct NodeStyle {
     pub border_color: Option<Color>,
     pub border_width: f32,
     pub border_radius: f32,
+    pub border_radius_tl: Option<f32>,
+    pub border_radius_tr: Option<f32>,
+    pub border_radius_br: Option<f32>,
+    pub border_radius_bl: Option<f32>,
     pub font_size: f32,
     pub font_weight: FontWeight,
     pub opacity: f32,
     pub text_align: TextAlign,
     pub text_decoration: TextDecoration,
+    pub line_height: Option<f32>,
+    pub letter_spacing: f32,
+    pub white_space: WhiteSpace,
+    pub text_overflow: TextOverflow,
+    pub overflow: Overflow,
+    pub box_shadow: Option<BoxShadow>,
+    pub transform: Option<Transform>,
+    pub z_index: i32,
+    pub vertical_align: VerticalAlign,
+    pub word_break: WordBreak,
     /// 组件特定数据（如 progress 的百分比、switch 的选中状态等）
     pub custom_data: f32,
+    /// 是否是 fixed 定位（相对于视口固定）
+    pub is_fixed: bool,
+    /// fixed 定位的 bottom 值
+    pub fixed_bottom: Option<f32>,
+    /// fixed 定位的 top 值
+    pub fixed_top: Option<f32>,
+    /// fixed 定位的 left 值
+    pub fixed_left: Option<f32>,
+    /// fixed 定位的 right 值
+    pub fixed_right: Option<f32>,
 }
 
 #[derive(Clone, Copy, Default, PartialEq)]
@@ -40,6 +64,15 @@ pub enum FontWeight {
     #[default]
     Normal,
     Bold,
+    W100,
+    W200,
+    W300,
+    W400,
+    W500,
+    W600,
+    W700,
+    W800,
+    W900,
 }
 
 #[derive(Clone, Copy, Default, PartialEq)]
@@ -48,6 +81,7 @@ pub enum TextAlign {
     Left,
     Center,
     Right,
+    Justify,
 }
 
 #[derive(Clone, Copy, Default, PartialEq)]
@@ -56,6 +90,84 @@ pub enum TextDecoration {
     None,
     Underline,
     LineThrough,
+    Overline,
+}
+
+#[derive(Clone, Copy, Default, PartialEq)]
+pub enum WhiteSpace {
+    #[default]
+    Normal,
+    NoWrap,
+    Pre,
+    PreWrap,
+    PreLine,
+}
+
+#[derive(Clone, Copy, Default, PartialEq)]
+pub enum TextOverflow {
+    #[default]
+    Clip,
+    Ellipsis,
+}
+
+#[derive(Clone, Copy, Default, PartialEq)]
+pub enum Overflow {
+    #[default]
+    Visible,
+    Hidden,
+    Scroll,
+    Auto,
+}
+
+#[derive(Clone, Copy, Default, PartialEq)]
+pub enum VerticalAlign {
+    #[default]
+    Baseline,
+    Top,
+    Middle,
+    Bottom,
+}
+
+#[derive(Clone, Copy, Default, PartialEq)]
+pub enum WordBreak {
+    #[default]
+    Normal,
+    BreakAll,
+    KeepAll,
+    BreakWord,
+}
+
+/// 盒子阴影
+#[derive(Clone, Copy, Default)]
+pub struct BoxShadow {
+    pub offset_x: f32,
+    pub offset_y: f32,
+    pub blur: f32,
+    pub spread: f32,
+    pub color: Color,
+    pub inset: bool,
+}
+
+/// 变换
+#[derive(Clone, Copy, Default)]
+pub struct Transform {
+    pub translate_x: f32,
+    pub translate_y: f32,
+    pub scale_x: f32,
+    pub scale_y: f32,
+    pub rotate: f32, // 角度
+    pub skew_x: f32,
+    pub skew_y: f32,
+}
+
+impl Transform {
+    pub fn new() -> Self {
+        Self {
+            scale_x: 1.0,
+            scale_y: 1.0,
+            ..Default::default()
+        }
+    }
 }
 
 /// 组件上下文
@@ -175,7 +287,13 @@ pub fn build_base_style(
     let css = ctx.stylesheet.get_styles(&classes, &node.tag_name);
     
     let mut ns = NodeStyle { font_size: 14.0, opacity: 1.0, ..Default::default() };
-    let mut ts = Style { display: Display::Flex, flex_direction: FlexDirection::Column, ..Default::default() };
+    
+    // 默认样式：flex 布局，列方向
+    let mut ts = Style { 
+        display: Display::Flex, 
+        flex_direction: FlexDirection::Column,
+        ..Default::default() 
+    };
 
     for (name, value) in &css {
         match name.as_str() {
@@ -183,6 +301,8 @@ pub fn build_base_style(
             "height" => if let Some(v) = to_dimension(value, ctx.screen_width, ctx.screen_height, sf) { ts.size.height = v; }
             "min-width" => if let Some(v) = to_dimension(value, ctx.screen_width, ctx.screen_height, sf) { ts.min_size.width = v; }
             "min-height" => if let Some(v) = to_dimension(value, ctx.screen_width, ctx.screen_height, sf) { ts.min_size.height = v; }
+            "max-width" => if let Some(v) = to_dimension(value, ctx.screen_width, ctx.screen_height, sf) { ts.max_size.width = v; }
+            "max-height" => if let Some(v) = to_dimension(value, ctx.screen_width, ctx.screen_height, sf) { ts.max_size.height = v; }
             "padding" => if let Some(v) = to_px(value, ctx.screen_width, ctx.screen_height) {
                 let sv = v * sf;
                 ts.padding = Rect { top: length(sv), right: length(sv), bottom: length(sv), left: length(sv) };
@@ -200,9 +320,12 @@ pub fn build_base_style(
             "margin-bottom" => if let Some(v) = to_px(value, ctx.screen_width, ctx.screen_height) { ts.margin.bottom = length(v * sf); }
             "margin-left" => if let Some(v) = to_px(value, ctx.screen_width, ctx.screen_height) { ts.margin.left = length(v * sf); }
             "display" => if let StyleValue::String(s) = value {
-                ts.display = match s.as_str() {
-                    "none" => Display::None,
-                    _ => Display::Flex,
+                match s.as_str() {
+                    "none" => ts.display = Display::None,
+                    "block" => ts.display = Display::Flex,
+                    "flex" => ts.display = Display::Flex,
+                    "grid" => ts.display = Display::Grid,
+                    _ => ts.display = Display::Flex,
                 };
             }
             "flex-direction" => if let StyleValue::String(s) = value {
@@ -210,6 +333,7 @@ pub fn build_base_style(
                     "row" => FlexDirection::Row,
                     "row-reverse" => FlexDirection::RowReverse,
                     "column-reverse" => FlexDirection::ColumnReverse,
+                    "column" => FlexDirection::Column,
                     _ => FlexDirection::Column,
                 };
             }
@@ -222,38 +346,84 @@ pub fn build_base_style(
             }
             "flex" | "flex-grow" => if let Some(v) = to_px(value, ctx.screen_width, ctx.screen_height) { ts.flex_grow = v; }
             "flex-shrink" => if let Some(v) = to_px(value, ctx.screen_width, ctx.screen_height) { ts.flex_shrink = v; }
+            "flex-basis" => if let Some(v) = to_dimension(value, ctx.screen_width, ctx.screen_height, sf) { ts.flex_basis = v; }
             "justify-content" => if let StyleValue::String(s) = value {
                 ts.justify_content = Some(match s.as_str() {
                     "center" => JustifyContent::Center,
                     "space-between" => JustifyContent::SpaceBetween,
                     "space-around" => JustifyContent::SpaceAround,
                     "space-evenly" => JustifyContent::SpaceEvenly,
-                    "flex-end" => JustifyContent::FlexEnd,
+                    "flex-end" | "end" => JustifyContent::FlexEnd,
+                    "flex-start" | "start" => JustifyContent::FlexStart,
                     _ => JustifyContent::FlexStart,
                 });
             }
             "align-items" => if let StyleValue::String(s) = value {
-                ts.align_items = Some(match s.as_str() {
+                let align = match s.as_str() {
                     "center" => AlignItems::Center,
-                    "flex-end" => AlignItems::FlexEnd,
+                    "flex-end" | "end" => AlignItems::FlexEnd,
+                    "flex-start" | "start" => AlignItems::FlexStart,
                     "stretch" => AlignItems::Stretch,
                     "baseline" => AlignItems::Baseline,
                     _ => AlignItems::FlexStart,
+                };
+                ts.align_items = Some(align);
+            }
+            "align-self" => if let StyleValue::String(s) = value {
+                ts.align_self = Some(match s.as_str() {
+                    "center" => AlignSelf::Center,
+                    "flex-end" | "end" => AlignSelf::FlexEnd,
+                    "flex-start" | "start" => AlignSelf::FlexStart,
+                    "stretch" => AlignSelf::Stretch,
+                    "baseline" => AlignSelf::Baseline,
+                    _ => AlignSelf::Start,
+                });
+            }
+            "align-content" => if let StyleValue::String(s) = value {
+                ts.align_content = Some(match s.as_str() {
+                    "center" => AlignContent::Center,
+                    "flex-end" | "end" => AlignContent::FlexEnd,
+                    "flex-start" | "start" => AlignContent::FlexStart,
+                    "stretch" => AlignContent::Stretch,
+                    "space-between" => AlignContent::SpaceBetween,
+                    "space-around" => AlignContent::SpaceAround,
+                    "space-evenly" => AlignContent::SpaceEvenly,
+                    _ => AlignContent::FlexStart,
                 });
             }
             "gap" => if let Some(v) = to_px(value, ctx.screen_width, ctx.screen_height) { 
                 let sv = v * sf;
                 ts.gap = Size { width: length(sv), height: length(sv) }; 
             }
+            "row-gap" => if let Some(v) = to_px(value, ctx.screen_width, ctx.screen_height) { ts.gap.height = length(v * sf); }
+            "column-gap" => if let Some(v) = to_px(value, ctx.screen_width, ctx.screen_height) { ts.gap.width = length(v * sf); }
             "background-color" | "background" => if let StyleValue::Color(c) = value { ns.background_color = Some(*c); }
             "color" => if let StyleValue::Color(c) = value { ns.text_color = Some(*c); }
             "border-color" => if let StyleValue::Color(c) = value { ns.border_color = Some(*c); }
             "border-width" => if let Some(v) = to_px(value, ctx.screen_width, ctx.screen_height) { ns.border_width = v * sf; }
             "border-radius" => if let Some(v) = to_px(value, ctx.screen_width, ctx.screen_height) { ns.border_radius = v * sf; }
+            "border-top-left-radius" => if let Some(v) = to_px(value, ctx.screen_width, ctx.screen_height) { ns.border_radius_tl = Some(v * sf); }
+            "border-top-right-radius" => if let Some(v) = to_px(value, ctx.screen_width, ctx.screen_height) { ns.border_radius_tr = Some(v * sf); }
+            "border-bottom-right-radius" => if let Some(v) = to_px(value, ctx.screen_width, ctx.screen_height) { ns.border_radius_br = Some(v * sf); }
+            "border-bottom-left-radius" => if let Some(v) = to_px(value, ctx.screen_width, ctx.screen_height) { ns.border_radius_bl = Some(v * sf); }
+            "border" => {
+                // border: 1px solid #000
+                if let StyleValue::String(s) = value {
+                    parse_border_shorthand(s, &mut ns, ctx.screen_width, sf);
+                }
+            }
             "font-size" => if let Some(v) = to_px(value, ctx.screen_width, ctx.screen_height) { ns.font_size = v; }
             "font-weight" => if let StyleValue::String(s) = value {
                 ns.font_weight = match s.as_str() {
-                    "bold" | "700" | "800" | "900" => FontWeight::Bold,
+                    "100" => FontWeight::W100,
+                    "200" => FontWeight::W200,
+                    "300" | "light" => FontWeight::W300,
+                    "400" | "normal" => FontWeight::Normal,
+                    "500" | "medium" => FontWeight::W500,
+                    "600" | "semibold" => FontWeight::W600,
+                    "700" | "bold" => FontWeight::Bold,
+                    "800" => FontWeight::W800,
+                    "900" | "black" => FontWeight::W900,
                     _ => FontWeight::Normal,
                 };
             }
@@ -261,35 +431,322 @@ pub fn build_base_style(
                 ns.text_align = match s.as_str() {
                     "center" => TextAlign::Center,
                     "right" => TextAlign::Right,
+                    "justify" => TextAlign::Justify,
                     _ => TextAlign::Left,
                 };
             }
-            "opacity" => if let StyleValue::Number(n) = value { ns.opacity = *n; }
-            "position" => if let StyleValue::String(s) = value {
-                ts.position = match s.as_str() {
-                    "absolute" => Position::Absolute,
-                    _ => Position::Relative,
+            "text-decoration" | "text-decoration-line" => if let StyleValue::String(s) = value {
+                ns.text_decoration = match s.as_str() {
+                    "underline" => TextDecoration::Underline,
+                    "line-through" => TextDecoration::LineThrough,
+                    "overline" => TextDecoration::Overline,
+                    _ => TextDecoration::None,
                 };
             }
-            "top" => if let Some(v) = to_px(value, ctx.screen_width, ctx.screen_height) { ts.inset.top = LengthPercentageAuto::Length(v * sf); }
-            "right" => if let Some(v) = to_px(value, ctx.screen_width, ctx.screen_height) { ts.inset.right = LengthPercentageAuto::Length(v * sf); }
-            "bottom" => if let Some(v) = to_px(value, ctx.screen_width, ctx.screen_height) { ts.inset.bottom = LengthPercentageAuto::Length(v * sf); }
-            "left" => if let Some(v) = to_px(value, ctx.screen_width, ctx.screen_height) { ts.inset.left = LengthPercentageAuto::Length(v * sf); }
+            "line-height" => {
+                if let Some(v) = to_px(value, ctx.screen_width, ctx.screen_height) { 
+                    ns.line_height = Some(v); 
+                } else if let StyleValue::Number(n) = value {
+                    ns.line_height = Some(ns.font_size * n);
+                }
+            }
+            "letter-spacing" => if let Some(v) = to_px(value, ctx.screen_width, ctx.screen_height) { ns.letter_spacing = v; }
+            "white-space" => if let StyleValue::String(s) = value {
+                ns.white_space = match s.as_str() {
+                    "nowrap" => WhiteSpace::NoWrap,
+                    "pre" => WhiteSpace::Pre,
+                    "pre-wrap" => WhiteSpace::PreWrap,
+                    "pre-line" => WhiteSpace::PreLine,
+                    _ => WhiteSpace::Normal,
+                };
+            }
+            "text-overflow" => if let StyleValue::String(s) = value {
+                ns.text_overflow = match s.as_str() {
+                    "ellipsis" => TextOverflow::Ellipsis,
+                    _ => TextOverflow::Clip,
+                };
+            }
+            "overflow" | "overflow-x" | "overflow-y" => if let StyleValue::String(s) = value {
+                ns.overflow = match s.as_str() {
+                    "hidden" => Overflow::Hidden,
+                    "scroll" => Overflow::Scroll,
+                    "auto" => Overflow::Auto,
+                    _ => Overflow::Visible,
+                };
+                let taffy_overflow = match s.as_str() {
+                    "hidden" | "scroll" | "auto" => taffy::style::Overflow::Hidden,
+                    _ => taffy::style::Overflow::Visible,
+                };
+                ts.overflow.x = taffy_overflow;
+                ts.overflow.y = taffy_overflow;
+            }
+            "vertical-align" => if let StyleValue::String(s) = value {
+                ns.vertical_align = match s.as_str() {
+                    "top" => VerticalAlign::Top,
+                    "middle" => VerticalAlign::Middle,
+                    "bottom" => VerticalAlign::Bottom,
+                    _ => VerticalAlign::Baseline,
+                };
+            }
+            "word-break" => if let StyleValue::String(s) = value {
+                ns.word_break = match s.as_str() {
+                    "break-all" => WordBreak::BreakAll,
+                    "keep-all" => WordBreak::KeepAll,
+                    "break-word" => WordBreak::BreakWord,
+                    _ => WordBreak::Normal,
+                };
+            }
+            "z-index" => if let StyleValue::Number(n) = value { ns.z_index = *n as i32; }
+            "opacity" => if let StyleValue::Number(n) = value { ns.opacity = *n; }
+            "box-shadow" => if let StyleValue::String(s) = value {
+                if let Some(shadow) = parse_box_shadow(s, ctx.screen_width) {
+                    ns.box_shadow = Some(shadow);
+                }
+            }
+            "transform" => if let StyleValue::String(s) = value {
+                if let Some(transform) = parse_transform(s) {
+                    ns.transform = Some(transform);
+                }
+            }
+            "position" => if let StyleValue::String(s) = value {
+                match s.as_str() {
+                    "absolute" => ts.position = Position::Absolute,
+                    "fixed" => {
+                        // fixed 定位：使用 absolute 让 Taffy 处理，但标记为 fixed
+                        ts.position = Position::Absolute;
+                        ns.is_fixed = true;
+                    }
+                    _ => ts.position = Position::Relative,
+                };
+            }
+            "top" => {
+                if let Some(v) = to_px(value, ctx.screen_width, ctx.screen_height) { 
+                    ts.inset.top = LengthPercentageAuto::Length(v * sf);
+                    ns.fixed_top = Some(v * sf);
+                }
+            }
+            "right" => {
+                if let Some(v) = to_px(value, ctx.screen_width, ctx.screen_height) { 
+                    ts.inset.right = LengthPercentageAuto::Length(v * sf);
+                    ns.fixed_right = Some(v * sf);
+                }
+            }
+            "bottom" => {
+                if let Some(v) = to_px(value, ctx.screen_width, ctx.screen_height) { 
+                    ts.inset.bottom = LengthPercentageAuto::Length(v * sf);
+                    ns.fixed_bottom = Some(v * sf);
+                }
+            }
+            "left" => {
+                if let Some(v) = to_px(value, ctx.screen_width, ctx.screen_height) { 
+                    ts.inset.left = LengthPercentageAuto::Length(v * sf);
+                    ns.fixed_left = Some(v * sf);
+                }
+            }
             _ => {}
         }
     }
     (ts, ns)
 }
 
+/// 解析 box-shadow
+fn parse_box_shadow(s: &str, screen_width: f32) -> Option<BoxShadow> {
+    let s = s.trim();
+    if s == "none" { return None; }
+    
+    let mut shadow = BoxShadow::default();
+    shadow.color = Color::new(0, 0, 0, 128);
+    
+    let parts: Vec<&str> = s.split_whitespace().collect();
+    let mut num_idx = 0;
+    
+    for part in parts {
+        if part == "inset" {
+            shadow.inset = true;
+        } else if part.starts_with('#') || part.starts_with("rgb") {
+            if let Some(color) = parse_color_str(part) {
+                shadow.color = color;
+            }
+        } else if let Some((num, unit)) = parse_length_simple(part) {
+            let px = match unit {
+                "rpx" => num * screen_width / 750.0,
+                _ => num,
+            };
+            match num_idx {
+                0 => shadow.offset_x = px,
+                1 => shadow.offset_y = px,
+                2 => shadow.blur = px,
+                3 => shadow.spread = px,
+                _ => {}
+            }
+            num_idx += 1;
+        }
+    }
+    
+    Some(shadow)
+}
+
+/// 解析 transform
+fn parse_transform(s: &str) -> Option<Transform> {
+    let mut transform = Transform::new();
+    let mut remaining = s.trim();
+    
+    while !remaining.is_empty() {
+        if let Some(paren_start) = remaining.find('(') {
+            let func_name = remaining[..paren_start].trim();
+            if let Some(paren_end) = remaining.find(')') {
+                let args = &remaining[paren_start + 1..paren_end];
+                
+                match func_name {
+                    "translate" | "translateX" | "translateY" => {
+                        let values: Vec<f32> = args.split(',')
+                            .filter_map(|v| parse_length_simple(v.trim()).map(|(n, _)| n))
+                            .collect();
+                        if func_name == "translateX" && !values.is_empty() {
+                            transform.translate_x = values[0];
+                        } else if func_name == "translateY" && !values.is_empty() {
+                            transform.translate_y = values[0];
+                        } else if !values.is_empty() {
+                            transform.translate_x = values[0];
+                            if values.len() > 1 { transform.translate_y = values[1]; }
+                        }
+                    }
+                    "scale" | "scaleX" | "scaleY" => {
+                        let values: Vec<f32> = args.split(',')
+                            .filter_map(|v| v.trim().parse().ok())
+                            .collect();
+                        if func_name == "scaleX" && !values.is_empty() {
+                            transform.scale_x = values[0];
+                        } else if func_name == "scaleY" && !values.is_empty() {
+                            transform.scale_y = values[0];
+                        } else if !values.is_empty() {
+                            transform.scale_x = values[0];
+                            transform.scale_y = if values.len() > 1 { values[1] } else { values[0] };
+                        }
+                    }
+                    "rotate" => {
+                        let angle = args.trim().trim_end_matches("deg");
+                        if let Ok(deg) = angle.parse::<f32>() { transform.rotate = deg; }
+                    }
+                    "skew" | "skewX" | "skewY" => {
+                        let values: Vec<f32> = args.split(',')
+                            .filter_map(|v| v.trim().trim_end_matches("deg").parse().ok())
+                            .collect();
+                        if func_name == "skewX" && !values.is_empty() {
+                            transform.skew_x = values[0];
+                        } else if func_name == "skewY" && !values.is_empty() {
+                            transform.skew_y = values[0];
+                        } else if !values.is_empty() {
+                            transform.skew_x = values[0];
+                            if values.len() > 1 { transform.skew_y = values[1]; }
+                        }
+                    }
+                    _ => {}
+                }
+                remaining = remaining[paren_end + 1..].trim();
+            } else { break; }
+        } else { break; }
+    }
+    Some(transform)
+}
+
+/// 解析 border 简写
+fn parse_border_shorthand(s: &str, ns: &mut NodeStyle, screen_width: f32, sf: f32) {
+    for part in s.split_whitespace() {
+        if part.starts_with('#') || part.starts_with("rgb") {
+            if let Some(color) = parse_color_str(part) { ns.border_color = Some(color); }
+        } else if let Some((num, unit)) = parse_length_simple(part) {
+            let px = match unit { "rpx" => num * screen_width / 750.0, _ => num };
+            ns.border_width = px * sf;
+        }
+    }
+}
+
+/// 简单长度解析
+fn parse_length_simple(s: &str) -> Option<(f32, &str)> {
+    let s = s.trim();
+    for unit in ["rpx", "px", "em", "rem", "vh", "vw", "%"] {
+        if s.ends_with(unit) {
+            if let Ok(num) = s.trim_end_matches(unit).parse::<f32>() {
+                return Some((num, unit));
+            }
+        }
+    }
+    s.parse::<f32>().ok().map(|n| (n, "px"))
+}
+
+/// 绘制盒子阴影
+pub fn draw_box_shadow(canvas: &mut Canvas, shadow: &BoxShadow, x: f32, y: f32, w: f32, h: f32, border_radius: f32) {
+    if shadow.inset {
+        return; // 暂不支持内阴影
+    }
+    
+    let shadow_x = x + shadow.offset_x;
+    let shadow_y = y + shadow.offset_y;
+    let shadow_w = w + shadow.spread * 2.0;
+    let shadow_h = h + shadow.spread * 2.0;
+    let adjusted_x = shadow_x - shadow.spread;
+    let adjusted_y = shadow_y - shadow.spread;
+    
+    // 简化的阴影绘制：使用多层半透明矩形模拟模糊
+    let blur_steps = (shadow.blur / 2.0).max(1.0) as i32;
+    let base_alpha = shadow.color.a as f32 / blur_steps as f32;
+    
+    for i in 0..blur_steps {
+        let expand = i as f32 * 2.0;
+        let alpha = (base_alpha * (1.0 - i as f32 / blur_steps as f32)) as u8;
+        if alpha == 0 { continue; }
+        
+        let color = Color::new(shadow.color.r, shadow.color.g, shadow.color.b, alpha);
+        let paint = Paint::new().with_color(color).with_style(PaintStyle::Fill);
+        
+        let sx = adjusted_x - expand;
+        let sy = adjusted_y - expand;
+        let sw = shadow_w + expand * 2.0;
+        let sh = shadow_h + expand * 2.0;
+        
+        if border_radius > 0.0 {
+            let mut path = Path::new();
+            path.add_round_rect(sx, sy, sw, sh, border_radius + expand);
+            canvas.draw_path(&path, &paint);
+        } else {
+            canvas.draw_rect(&GeoRect::new(sx, sy, sw, sh), &paint);
+        }
+    }
+}
+
+/// 获取有效的边框圆角
+pub fn get_border_radii(style: &NodeStyle) -> [f32; 4] {
+    [
+        style.border_radius_tl.unwrap_or(style.border_radius),
+        style.border_radius_tr.unwrap_or(style.border_radius),
+        style.border_radius_br.unwrap_or(style.border_radius),
+        style.border_radius_bl.unwrap_or(style.border_radius),
+    ]
+}
+
 /// 绘制背景和边框
 pub fn draw_background(canvas: &mut Canvas, style: &NodeStyle, x: f32, y: f32, w: f32, h: f32) {
+    // 绘制阴影（在背景之前）
+    if let Some(shadow) = &style.box_shadow {
+        draw_box_shadow(canvas, shadow, x, y, w, h, style.border_radius);
+    }
+    
+    let radii = get_border_radii(style);
+    let has_different_radii = radii[0] != radii[1] || radii[1] != radii[2] || radii[2] != radii[3];
+    
     // 绘制背景
     if let Some(bg) = style.background_color {
         let mut paint = Paint::new().with_color(bg).with_style(PaintStyle::Fill);
         if style.opacity < 1.0 { 
             paint.color.a = (paint.color.a as f32 * style.opacity) as u8; 
         }
-        if style.border_radius > 0.0 {
+        
+        if has_different_radii {
+            let mut path = Path::new();
+            add_round_rect_with_radii(&mut path, x, y, w, h, radii);
+            canvas.draw_path(&path, &paint);
+        } else if style.border_radius > 0.0 {
             let mut path = Path::new();
             path.add_round_rect(x, y, w, h, style.border_radius);
             canvas.draw_path(&path, &paint);
@@ -302,7 +759,11 @@ pub fn draw_background(canvas: &mut Canvas, style: &NodeStyle, x: f32, y: f32, w
     if style.border_width > 0.0 {
         if let Some(bc) = style.border_color {
             let paint = Paint::new().with_color(bc).with_style(PaintStyle::Stroke);
-            if style.border_radius > 0.0 {
+            if has_different_radii {
+                let mut path = Path::new();
+                add_round_rect_with_radii(&mut path, x, y, w, h, radii);
+                canvas.draw_path(&path, &paint);
+            } else if style.border_radius > 0.0 {
                 let mut path = Path::new();
                 path.add_round_rect(x, y, w, h, style.border_radius);
                 canvas.draw_path(&path, &paint);
@@ -311,4 +772,38 @@ pub fn draw_background(canvas: &mut Canvas, style: &NodeStyle, x: f32, y: f32, w
             }
         }
     }
+}
+
+/// 添加带有不同圆角的圆角矩形路径
+fn add_round_rect_with_radii(path: &mut Path, x: f32, y: f32, w: f32, h: f32, radii: [f32; 4]) {
+    let [tl, tr, br, bl] = radii;
+    
+    // 从左上角开始，顺时针绘制
+    path.move_to(x + tl, y);
+    
+    // 上边 + 右上角
+    path.line_to(x + w - tr, y);
+    if tr > 0.0 {
+        path.quad_to(x + w, y, x + w, y + tr);
+    }
+    
+    // 右边 + 右下角
+    path.line_to(x + w, y + h - br);
+    if br > 0.0 {
+        path.quad_to(x + w, y + h, x + w - br, y + h);
+    }
+    
+    // 下边 + 左下角
+    path.line_to(x + bl, y + h);
+    if bl > 0.0 {
+        path.quad_to(x, y + h, x, y + h - bl);
+    }
+    
+    // 左边 + 左上角
+    path.line_to(x, y + tl);
+    if tl > 0.0 {
+        path.quad_to(x, y, x + tl, y);
+    }
+    
+    path.close();
 }

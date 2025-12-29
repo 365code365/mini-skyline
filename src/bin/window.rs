@@ -20,7 +20,7 @@ use winit::window::{Window, WindowAttributes, WindowId};
 const LOGICAL_WIDTH: u32 = 375;
 const LOGICAL_HEIGHT: u32 = 667;
 const CONTENT_HEIGHT: u32 = 1500;
-const TABBAR_HEIGHT: u32 = 50;
+const TABBAR_HEIGHT: u32 = 56;  // 自定义 TabBar 高度 (100rpx + padding)
 
 /// app.json 配置结构
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -259,6 +259,7 @@ struct MiniAppWindow {
     app: MiniApp,
     canvas: Option<Canvas>,
     tabbar_canvas: Option<Canvas>,
+    fixed_canvas: Option<Canvas>,  // 用于渲染 fixed 元素
     renderer: Option<WxmlRenderer>,
     tabbar_renderer: Option<WxmlRenderer>,
     text_renderer: Option<TextRenderer>,
@@ -327,7 +328,7 @@ impl MiniAppWindow {
         // 加载所有页面资源
         let mut pages = HashMap::new();
         
-        // Index 页面
+        // Index 页面 (首页)
         pages.insert("pages/index/index".to_string(), PageInfo {
             path: "pages/index/index".to_string(),
             wxml: include_str!("../../sample-app/pages/index/index.wxml").to_string(),
@@ -335,15 +336,31 @@ impl MiniAppWindow {
             js: include_str!("../../sample-app/pages/index/index.js").to_string(),
         });
         
-        // List 页面
-        pages.insert("pages/list/list".to_string(), PageInfo {
-            path: "pages/list/list".to_string(),
-            wxml: include_str!("../../sample-app/pages/list/list.wxml").to_string(),
-            wxss: include_str!("../../sample-app/pages/list/list.wxss").to_string(),
-            js: include_str!("../../sample-app/pages/list/list.js").to_string(),
+        // Category 页面 (分类)
+        pages.insert("pages/category/category".to_string(), PageInfo {
+            path: "pages/category/category".to_string(),
+            wxml: include_str!("../../sample-app/pages/category/category.wxml").to_string(),
+            wxss: include_str!("../../sample-app/pages/category/category.wxss").to_string(),
+            js: include_str!("../../sample-app/pages/category/category.js").to_string(),
         });
         
-        // Detail 页面
+        // Cart 页面 (购物车)
+        pages.insert("pages/cart/cart".to_string(), PageInfo {
+            path: "pages/cart/cart".to_string(),
+            wxml: include_str!("../../sample-app/pages/cart/cart.wxml").to_string(),
+            wxss: include_str!("../../sample-app/pages/cart/cart.wxss").to_string(),
+            js: include_str!("../../sample-app/pages/cart/cart.js").to_string(),
+        });
+        
+        // Profile 页面 (我的)
+        pages.insert("pages/profile/profile".to_string(), PageInfo {
+            path: "pages/profile/profile".to_string(),
+            wxml: include_str!("../../sample-app/pages/profile/profile.wxml").to_string(),
+            wxss: include_str!("../../sample-app/pages/profile/profile.wxss").to_string(),
+            js: include_str!("../../sample-app/pages/profile/profile.js").to_string(),
+        });
+        
+        // Detail 页面 (商品详情)
         pages.insert("pages/detail/detail".to_string(), PageInfo {
             path: "pages/detail/detail".to_string(),
             wxml: include_str!("../../sample-app/pages/detail/detail.wxml").to_string(),
@@ -370,6 +387,7 @@ impl MiniAppWindow {
             app,
             canvas: None,
             tabbar_canvas: None,
+            fixed_canvas: None,
             renderer: None,
             tabbar_renderer: None,
             text_renderer: None,
@@ -571,11 +589,13 @@ impl MiniAppWindow {
         let physical_width = (LOGICAL_WIDTH as f64 * scale_factor) as u32;
         let physical_height = (CONTENT_HEIGHT as f64 * scale_factor) as u32;
         let tabbar_physical_height = (TABBAR_HEIGHT as f64 * scale_factor) as u32;
+        let viewport_physical_height = (LOGICAL_HEIGHT as f64 * scale_factor) as u32;
         
         println!("📐 Scale: {}x | Content: {}x{}", scale_factor, LOGICAL_WIDTH, CONTENT_HEIGHT);
         
         self.canvas = Some(Canvas::new(physical_width, physical_height));
         self.tabbar_canvas = Some(Canvas::new(physical_width, tabbar_physical_height));
+        self.fixed_canvas = Some(Canvas::new(physical_width, viewport_physical_height));
         
         // 初始化文本渲染器
         self.text_renderer = TextRenderer::load_system_font()
@@ -619,17 +639,32 @@ impl MiniAppWindow {
         let current_path = page.path.clone();
         let wxml_nodes = page.wxml_nodes.clone();
         
-        // 渲染内容区域
+        // 获取滚动偏移
+        let scroll_offset = self.scroll.get_position();
+        
+        // 计算视口高度（不包括 TabBar）
+        let has_tabbar = self.is_tabbar_page(&current_path);
+        let viewport_height = (LOGICAL_HEIGHT - if has_tabbar { TABBAR_HEIGHT } else { 0 }) as f32;
+        
+        // 渲染内容区域（不包括 fixed 元素）
         if let Some(canvas) = &mut self.canvas {
             canvas.clear(Color::from_hex(0xF5F5F5));
             
             if let Some(renderer) = &mut self.renderer {
-                renderer.render_with_interaction(canvas, &wxml_nodes, &page_data, &mut self.interaction);
+                renderer.render_with_scroll_and_viewport(canvas, &wxml_nodes, &page_data, &mut self.interaction, scroll_offset, viewport_height);
+            }
+        }
+        
+        // 渲染 fixed 元素到单独的 canvas
+        if let Some(fixed_canvas) = &mut self.fixed_canvas {
+            fixed_canvas.clear(Color::new(0, 0, 0, 0)); // 透明背景
+            
+            if let Some(renderer) = &mut self.renderer {
+                renderer.render_fixed_elements(fixed_canvas, &wxml_nodes, &page_data, &mut self.interaction, viewport_height);
             }
         }
         
         // 渲染 TabBar（如果当前页面在 TabBar 中）
-        let has_tabbar = self.is_tabbar_page(&current_path);
         if has_tabbar {
             if self.is_custom_tabbar() {
                 self.render_custom_tabbar(&current_path);
@@ -785,6 +820,43 @@ impl MiniAppWindow {
                                 let g = canvas_data[src_idx + 1] as u32;
                                 let b = canvas_data[src_idx + 2] as u32;
                                 buffer[dst_idx] = (r << 16) | (g << 8) | b;
+                            }
+                        }
+                    }
+                    
+                    // 渲染 fixed 元素（覆盖在内容区域上）
+                    if let Some(fixed_canvas) = &self.fixed_canvas {
+                        let fixed_data = fixed_canvas.to_rgba();
+                        let fixed_width = fixed_canvas.width();
+                        let fixed_height = fixed_canvas.height();
+                        for y in 0..content_area_height.min(fixed_height) {
+                            for x in 0..size.width.min(fixed_width) {
+                                let src_idx = ((y * fixed_width + x) * 4) as usize;
+                                let dst_idx = (y * size.width + x) as usize;
+                                if src_idx + 3 < fixed_data.len() && dst_idx < buffer.len() {
+                                    let a = fixed_data[src_idx + 3];
+                                    if a > 0 {
+                                        // Alpha 混合
+                                        let r = fixed_data[src_idx] as u32;
+                                        let g = fixed_data[src_idx + 1] as u32;
+                                        let b = fixed_data[src_idx + 2] as u32;
+                                        if a == 255 {
+                                            buffer[dst_idx] = (r << 16) | (g << 8) | b;
+                                        } else {
+                                            // 简单的 alpha 混合
+                                            let dst = buffer[dst_idx];
+                                            let dst_r = (dst >> 16) & 0xFF;
+                                            let dst_g = (dst >> 8) & 0xFF;
+                                            let dst_b = dst & 0xFF;
+                                            let alpha = a as u32;
+                                            let inv_alpha = 255 - alpha;
+                                            let new_r = (r * alpha + dst_r * inv_alpha) / 255;
+                                            let new_g = (g * alpha + dst_g * inv_alpha) / 255;
+                                            let new_b = (b * alpha + dst_b * inv_alpha) / 255;
+                                            buffer[dst_idx] = (new_r << 16) | (new_g << 8) | new_b;
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

@@ -115,6 +115,11 @@ impl TextRenderer {
 
     /// 渲染文本到画布
     pub fn draw_text(&self, canvas: &mut Canvas, text: &str, x: f32, y: f32, size: f32, paint: &Paint) {
+        self.draw_text_with_spacing(canvas, text, x, y, size, 0.0, paint);
+    }
+    
+    /// 渲染文本到画布（带字间距）
+    pub fn draw_text_with_spacing(&self, canvas: &mut Canvas, text: &str, x: f32, y: f32, size: f32, letter_spacing: f32, paint: &Paint) {
         let mut cursor_x = x;
 
         for ch in text.chars() {
@@ -128,7 +133,7 @@ impl TextRenderer {
             let (metrics, bitmap) = font.rasterize(ch, size);
             
             if metrics.width == 0 || metrics.height == 0 {
-                cursor_x += metrics.advance_width;
+                cursor_x += metrics.advance_width + letter_spacing;
                 continue;
             }
 
@@ -158,14 +163,20 @@ impl TextRenderer {
                 }
             }
 
-            cursor_x += metrics.advance_width;
+            cursor_x += metrics.advance_width + letter_spacing;
         }
     }
 
     /// 测量文本宽度
     pub fn measure_text(&self, text: &str, size: f32) -> f32 {
+        self.measure_text_with_spacing(text, size, 0.0)
+    }
+    
+    /// 测量文本宽度（带字间距）
+    pub fn measure_text_with_spacing(&self, text: &str, size: f32, letter_spacing: f32) -> f32 {
         let mut width = 0.0;
-        for ch in text.chars() {
+        let char_count = text.chars().count();
+        for (i, ch) in text.chars().enumerate() {
             let font = if Self::is_emoji(ch) {
                 self.emoji_font.as_ref().unwrap_or(&self.main_font)
             } else {
@@ -173,8 +184,21 @@ impl TextRenderer {
             };
             let metrics = font.metrics(ch, size);
             width += metrics.advance_width;
+            if i < char_count - 1 {
+                width += letter_spacing;
+            }
         }
         width
+    }
+    
+    /// 测量单个字符宽度
+    pub fn measure_char(&self, ch: char, size: f32) -> f32 {
+        let font = if Self::is_emoji(ch) {
+            self.emoji_font.as_ref().unwrap_or(&self.main_font)
+        } else {
+            &self.main_font
+        };
+        font.metrics(ch, size).advance_width
     }
     
     /// 测量文本高度

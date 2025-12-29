@@ -1,32 +1,38 @@
 {
   "pages": [
     "pages/index/index",
-    "pages/list/list",
+    "pages/category/category",
+    "pages/cart/cart",
+    "pages/profile/profile",
     "pages/detail/detail"
   ],
   "window": {
-    "navigationBarTitleText": "Mini Render Demo",
-    "navigationBarBackgroundColor": "#667eea",
+    "navigationBarTitleText": "Mini Shop",
+    "navigationBarBackgroundColor": "#FF6B35",
     "navigationBarTextStyle": "white",
     "backgroundColor": "#F5F5F5"
   },
   "tabBar": {
     "custom": true,
     "color": "#999999",
-    "selectedColor": "#667eea",
+    "selectedColor": "#FF6B35",
     "backgroundColor": "#FFFFFF",
     "list": [
       {
         "pagePath": "pages/index/index",
-        "text": "组件"
+        "text": "首页"
       },
       {
-        "pagePath": "pages/list/list",
-        "text": "表单"
+        "pagePath": "pages/category/category",
+        "text": "分类"
       },
       {
-        "pagePath": "pages/detail/detail",
-        "text": "更多"
+        "pagePath": "pages/cart/cart",
+        "text": "购物车"
+      },
+      {
+        "pagePath": "pages/profile/profile",
+        "text": "我的"
       }
     ]
   }

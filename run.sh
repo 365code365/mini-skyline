@@ -11,6 +11,9 @@ echo -e "${BLUE}║     Mini App Engine Runner         ║${NC}"
 echo -e "${BLUE}╚════════════════════════════════════╝${NC}"
 echo ""
 
+# 设置 LIBCLANG_PATH (macOS)
+export LIBCLANG_PATH="/Library/Developer/CommandLineTools/usr/lib"
+
 # 默认使用 release 模式以获得最佳性能
 MODE="--release"
 
@@ -23,4 +26,4 @@ elif [[ "$1" == "--clean" ]]; then
 fi
 
 echo -e "${GREEN}▶ Building and running (release mode for smooth scrolling)...${NC}"
-cargo run $MODE --bin mini-app-window
+LIBCLANG_PATH="/Library/Developer/CommandLineTools/usr/lib" cargo run $MODE --bin mini-app-window

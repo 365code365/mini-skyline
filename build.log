@@ -1,0 +1,229 @@
+warning: unused import: `std::collections::HashMap`
+ --> src/parser/template.rs:4:5
+  |
+4 | use std::collections::HashMap;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `coverage`
+   --> src/canvas.rs:171:29
+    |
+171 |                         let coverage = (1.0 - (d - inner).abs().min(outer - d).min(1.0)).max(0.0);
+    |                             ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_coverage`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `cx`
+   --> src/canvas.rs:507:13
+    |
+507 |         let cx = x + w / 2.0;
+    |             ^^ help: if this is intentional, prefix it with an underscore: `_cx`
+
+warning: unused variable: `cy`
+   --> src/canvas.rs:508:13
+    |
+508 |         let cy = y + h / 2.0;
+    |             ^^ help: if this is intentional, prefix it with an underscore: `_cy`
+
+warning: unused variable: `visible_x`
+   --> src/ui/scroll_view.rs:141:21
+    |
+141 |                 let visible_x = child_bounds.x - self.scroll_x;
+    |                     ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_visible_x`
+
+warning: unused variable: `ctx`
+  --> src/js/runtime.rs:56:60
+   |
+56 |             let js_func = Function::new(ctx.clone(), move |ctx: Ctx, args: Vec<Value>| -> JsResult<String> {
+   |                                                            ^^^ help: if this is intentional, prefix it with an underscore: `_ctx`
+
+warning: unused variable: `dt`
+   --> src/runtime/app.rs:108:13
+    |
+108 |         let dt = now.duration_since(self.last_frame);
+    |             ^^ help: if this is intentional, prefix it with an underscore: `_dt`
+
+warning: field `runtime` is never read
+ --> src/js/runtime.rs:9:5
+  |
+8 | pub struct JsRuntime {
+  |            --------- field in this struct
+9 |     runtime: Runtime,
+  |     ^^^^^^^
+  |
+  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `storage` is never read
+  --> src/js/api.rs:10:5
+   |
+ 8 | pub struct MiniAppApi {
+   |            ---------- field in this struct
+ 9 |     runtime: Arc<Mutex<JsRuntime>>,
+10 |     storage: Arc<Mutex<HashMap<String, String>>>,
+   |     ^^^^^^^
+
+warning: methods `init_storage`, `init_timer`, and `init_ui` are never used
+   --> src/js/api.rs:86:8
+    |
+ 13 | impl MiniAppApi {
+    | --------------- methods in this implementation
+...
+ 86 |     fn init_storage(&self) -> Result<(), String> {
+    |        ^^^^^^^^^^^^
+...
+139 |     fn init_timer(&self) -> Result<(), String> {
+    |        ^^^^^^^^^^
+...
+359 |     fn init_ui(&self) -> Result<(), String> {
+    |        ^^^^^^^
+
+warning: fields `storage` and `timers` are never read
+  --> src/js/bridge.rs:13:5
+   |
+10 | pub struct JsBridge {
+   |            -------- fields in this struct
+...
+13 |     storage: Arc<Mutex<HashMap<String, String>>>,
+   |     ^^^^^^^
+14 |     timers: Arc<Mutex<HashMap<u32, TimerInfo>>>,
+   |     ^^^^^^
+
+warning: fields `delay`, `repeat`, and `start_time` are never read
+  --> src/js/bridge.rs:19:5
+   |
+18 | struct TimerInfo {
+   |        --------- fields in this struct
+19 |     delay: u32,
+   |     ^^^^^
+20 |     repeat: bool,
+   |     ^^^^^^
+21 |     start_time: u64,
+   |     ^^^^^^^^^^
+
+warning: methods `register_console_functions`, `register_storage_functions`, `register_timer_functions`, `register_ui_functions`, and `register_navigation_functions` are never used
+   --> src/js/bridge.rs:80:8
+    |
+ 42 | impl JsBridge {
+    | ------------- methods in this implementation
+...
+ 80 |     fn register_console_functions(&self) -> Result<(), String> {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+114 |     fn register_storage_functions(&self) -> Result<(), String> {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+156 |     fn register_timer_functions(&self) -> Result<(), String> {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^
+...
+199 |     fn register_ui_functions(&self) -> Result<(), String> {
+    |        ^^^^^^^^^^^^^^^^^^^^^
+...
+265 |     fn register_navigation_functions(&self) -> Result<(), String> {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `pause` is never used
+   --> src/renderer/components/video.rs:679:12
+    |
+ 86 | impl VideoPlayer {
+    | ---------------- method in this implementation
+...
+679 |     pub fn pause(&mut self) {
+    |            ^^^^^
+
+warning: function `toggle_video_play` is never used
+   --> src/renderer/components/video.rs:878:8
+    |
+878 | pub fn toggle_video_play(src: &str) {
+    |        ^^^^^^^^^^^^^^^^^
+
+warning: creating a mutable reference to mutable static
+   --> src/ui/component.rs:140:18
+    |
+140 |         unsafe { &mut EMPTY }
+    |                  ^^^^^^^^^^ mutable reference to mutable static
+    |
+    = note: for more information, see <https://doc.rust-lang.org/edition-guide/rust-2024/static-mut-references.html>
+    = note: mutable references to mutable statics are dangerous; it's undefined behavior if any other pointer to the static is used or if any other reference is created for the static while the mutable reference lives
+    = note: `#[warn(static_mut_refs)]` (part of `#[warn(rust_2024_compatibility)]`) on by default
+help: use `&raw mut` instead to create a raw pointer
+    |
+140 |         unsafe { &raw mut EMPTY }
+    |                   +++
+
+warning: `mini-render` (lib) generated 16 warnings (run `cargo fix --lib -p mini-render` to apply 7 suggestions)
+warning: unused variable: `height`
+   --> src/bin/window.rs:719:13
+    |
+719 |         let height = TABBAR_HEIGHT as f32 * sf;
+    |             ^^^^^^ help: if this is intentional, prefix it with an underscore: `_height`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `pages` and `window` are never read
+  --> src/bin/window.rs:29:5
+   |
+28 | struct AppConfig {
+   |        --------- fields in this struct
+29 |     pages: Vec<String>,
+   |     ^^^^^
+30 |     #[serde(default)]
+31 |     window: WindowConfig,
+   |     ^^^^^^
+   |
+   = note: `AppConfig` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `navigation_bar_title_text`, `navigation_bar_background_color`, `navigation_bar_text_style`, and `background_color` are never read
+  --> src/bin/window.rs:40:5
+   |
+38 | struct WindowConfig {
+   |        ------------ fields in this struct
+39 |     #[serde(default = "default_nav_title")]
+40 |     navigation_bar_title_text: String,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+41 |     #[serde(default = "default_nav_bg")]
+42 |     navigation_bar_background_color: String,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+43 |     #[serde(default)]
+44 |     navigation_bar_text_style: String,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+45 |     #[serde(default = "default_bg")]
+46 |     background_color: String,
+   |     ^^^^^^^^^^^^^^^^
+   |
+   = note: `WindowConfig` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `icon_path` and `selected_icon_path` are never read
+  --> src/bin/window.rs:78:5
+   |
+74 | struct TabBarItem {
+   |        ---------- fields in this struct
+...
+78 |     icon_path: String,
+   |     ^^^^^^^^^
+79 |     #[serde(default)]
+80 |     selected_icon_path: String,
+   |     ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `TabBarItem` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `path` is never read
+  --> src/bin/window.rs:85:5
+   |
+84 | struct PageInfo {
+   |        -------- field in this struct
+85 |     path: String,
+   |     ^^^^
+
+warning: field `js_code` is never read
+   --> src/bin/window.rs:103:5
+    |
+100 | struct CustomTabBar {
+    |        ------------ field in this struct
+...
+103 |     js_code: String,
+    |     ^^^^^^^
+
+warning: `mini-render` (bin "mini-app-window") generated 6 warnings (run `cargo fix --bin "mini-app-window" -p mini-render` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 0.28s

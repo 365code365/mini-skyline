@@ -1,63 +1,85 @@
+// 商品详情页
 Page({
   data: {
-    // 状态列表
-    statusList: [
-      { id: 1, icon: 'success', title: '操作成功', desc: '您的订单已提交成功', color: '#07C160', bgColor: '#E8F5E9' },
-      { id: 2, icon: 'info', title: '温馨提示', desc: '请在30分钟内完成支付', color: '#10AEFF', bgColor: '#E3F2FD' },
-      { id: 3, icon: 'warn', title: '注意事项', desc: '该操作不可撤销，请谨慎操作', color: '#F76260', bgColor: '#FFEBEE' }
+    product: {
+      id: 101,
+      name: '无线蓝牙耳机 Pro',
+      desc: '高清音质 主动降噪 40小时超长续航',
+      price: 199,
+      originalPrice: 299,
+      discount: '6.7折',
+      sales: 2341,
+      stock: 999,
+      detail: '【产品特点】\n• 高清音质，还原真实声音\n• 主动降噪，沉浸式体验\n• 40小时超长续航\n• 蓝牙5.0，稳定连接\n• 轻量设计，佩戴舒适\n\n【包装清单】\n耳机 x 1\n充电线 x 1\n说明书 x 1\n收纳袋 x 1'
+    },
+    specs: [
+      { id: 1, name: '黑色', selected: true },
+      { id: 2, name: '白色', selected: false },
+      { id: 3, name: '蓝色', selected: false }
     ],
-    
-    // 图标列表
-    iconList: [
-      { type: 'success', label: 'success', color: '#07C160' },
-      { type: 'success_no_circle', label: 'check', color: '#07C160' },
-      { type: 'info', label: 'info', color: '#10AEFF' },
-      { type: 'warn', label: 'warn', color: '#F76260' },
-      { type: 'waiting', label: 'waiting', color: '#10AEFF' },
-      { type: 'cancel', label: 'cancel', color: '#F43530' },
-      { type: 'download', label: 'download', color: '#07C160' },
-      { type: 'search', label: 'search', color: '#B2B2B2' }
-    ],
-    
-    // 卡片列表
-    cardList: [
-      { id: 1, icon: 'success', title: '账户设置', desc: '管理您的账户信息', color: '#07C160' },
-      { id: 2, icon: 'info', title: '消息中心', desc: '查看系统通知和消息', color: '#10AEFF' },
-      { id: 3, icon: 'waiting', title: '订单管理', desc: '查看和管理您的订单', color: '#FF9500' },
-      { id: 4, icon: 'search', title: '帮助中心', desc: '常见问题和使用指南', color: '#8E8E93' }
-    ]
+    selectedSpec: '黑色',
+    quantity: 1,
+    cartCount: 0
   },
-  
-  onLoad: function() {
-    console.log('📄 详情页加载完成');
+
+  onLoad: function(options) {
+    console.log('📦 商品详情页加载, id:', options.id);
+    this.updateCartCount();
   },
-  
+
   onShow: function() {
-    console.log('📄 详情页显示');
+    this.updateCartCount();
   },
-  
-  // 卡片点击
-  onCardTap: function(e) {
-    var id = e.currentTarget.dataset.id;
-    var card = this.data.cardList.find(function(c) { return c.id == id; });
-    if (card) {
-      console.log('📌 点击卡片:', card.title);
+
+  updateCartCount: function() {
+    var app = getApp();
+    this.setData({ cartCount: app.globalData.cartCount || 0 });
+  },
+
+  onSelectSpec: function(e) {
+    var index = e.currentTarget.dataset.index;
+    var specs = this.data.specs.map(function(spec, i) {
+      spec.selected = (i === index);
+      return spec;
+    });
+    var selected = specs[index].name;
+    console.log('🎨 选择规格:', selected);
+    this.setData({ specs: specs, selectedSpec: selected });
+  },
+
+  onIncrease: function() {
+    var qty = this.data.quantity;
+    if (qty < this.data.product.stock) {
+      this.setData({ quantity: qty + 1 });
     }
   },
-  
-  // 返回首页
-  onBackToIndex: function() {
-    console.log('🏠 返回首页');
+
+  onDecrease: function() {
+    var qty = this.data.quantity;
+    if (qty > 1) {
+      this.setData({ quantity: qty - 1 });
+    }
+  },
+
+  onAddCart: function() {
+    var product = this.data.product;
+    var quantity = this.data.quantity;
+    console.log('🛒 加入购物车:', product.name, 'x', quantity);
+    getApp().addToCart(product, quantity);
+    this.updateCartCount();
+    wx.showToast({ title: '已加入购物车', icon: 'success' });
+  },
+
+  onBuyNow: function() {
+    console.log('💳 立即购买:', this.data.product.name, 'x', this.data.quantity);
+    wx.showToast({ title: '订单创建成功', icon: 'success' });
+  },
+
+  onGoHome: function() {
     wx.switchTab({ url: '/pages/index/index' });
   },
-  
-  // 刷新
-  onRefresh: function() {
-    console.log('🔄 刷新页面');
-  },
-  
-  // 清除
-  onClear: function() {
-    console.log('🗑️ 清除数据');
+
+  onGoCart: function() {
+    wx.switchTab({ url: '/pages/cart/cart' });
   }
 });

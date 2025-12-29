@@ -18,12 +18,26 @@ softbuffer = "0.4"
 taffy = "0.4"
 arboard = "3"
 ureq = "2.9"
-mp4 = "0.14"
-openh264 = "0.6"
+# 音频解码和播放
+symphonia = { version = "0.5", features = ["isomp4", "aac", "mp3"] }
 rodio = "0.19"
+# H.264 解码 (纯 Rust)
+openh264 = "0.6"
 
 [build-dependencies]
 cbindgen = "0.26"
+
+# 加速开发编译
+[profile.dev]
+opt-level = 0
+debug = false  # 减少调试信息生成时间
+
+[profile.dev.package."*"]
+opt-level = 2  # 依赖库用优化编译，运行更快
+
+# release 模式优化
+[profile.release]
+lto = "thin"  # 轻量级 LTO，比 fat 快
 
 [[bin]]
 name = "mini-app"

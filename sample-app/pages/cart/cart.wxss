@@ -1,0 +1,166 @@
+.page {
+  background-color: #F5F5F5;
+  padding-bottom: 200rpx;
+}
+
+.header {
+  background-color: #FF6B35;
+  padding: 30rpx;
+}
+
+.header-title {
+  font-size: 36rpx;
+  color: #fff;
+  font-weight: bold;
+}
+
+/* 空购物车 */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 200rpx;
+}
+
+.empty-text {
+  font-size: 32rpx;
+  color: #999;
+  margin: 40rpx 0;
+}
+
+/* 购物车列表 */
+.cart-list {
+  padding: 20rpx;
+}
+
+.cart-item {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  background-color: #fff;
+  border-radius: 16rpx;
+  padding: 20rpx;
+  margin-bottom: 16rpx;
+}
+
+.item-icon {
+  width: 120rpx;
+  height: 120rpx;
+  background-color: #f5f5f5;
+  border-radius: 12rpx;
+  margin: 0 16rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.item-info {
+  flex: 1;
+}
+
+.item-name {
+  display: block;
+  font-size: 28rpx;
+  color: #333;
+}
+
+.item-row {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 16rpx;
+}
+
+.item-price {
+  font-size: 30rpx;
+  color: #FF6B35;
+  font-weight: bold;
+}
+
+.qty-box {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  background-color: #f5f5f5;
+  border-radius: 8rpx;
+}
+
+.qty-btn {
+  width: 48rpx;
+  height: 48rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.qty-btn text {
+  font-size: 28rpx;
+  color: #666;
+}
+
+.qty-num {
+  width: 48rpx;
+  text-align: center;
+  font-size: 26rpx;
+}
+
+.delete-btn {
+  padding: 16rpx;
+}
+
+/* 底部结算 */
+.checkout {
+  position: fixed;
+  bottom: 120rpx;
+  left: 0;
+  right: 0;
+  height: 100rpx;
+  background-color: #fff;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  padding: 0 20rpx;
+  border-top: 1rpx solid #eee;
+}
+
+.checkout-left {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+}
+
+.select-text {
+  font-size: 28rpx;
+  color: #333;
+  margin-left: 8rpx;
+}
+
+.checkout-right {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.total-text {
+  font-size: 28rpx;
+  color: #333;
+}
+
+.total-price {
+  font-size: 32rpx;
+  color: #FF6B35;
+  font-weight: bold;
+  margin-right: 16rpx;
+}
+
+.checkout-btn {
+  background-color: #FF6B35;
+  border-radius: 32rpx;
+}
+
+.bottom-space {
+  height: 180rpx;
+}

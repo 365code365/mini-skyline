@@ -133,5 +133,5 @@
 
 /* 底部间距 */
 .bottom-space {
-  height: 120rpx;
+  height: 180rpx;
 }

@@ -1,123 +1,81 @@
 <view class="page">
-  <!-- 顶部 Banner -->
+  <!-- 搜索栏 -->
+  <view class="search-bar">
+    <input class="search-input" placeholder="搜索商品" />
+  </view>
+
+  <!-- Banner -->
   <view class="banner">
-    <view class="banner-content">
-      <text class="banner-title">Mini Render</text>
-      <text class="banner-subtitle">轻量级小程序渲染引擎</text>
+    <text class="banner-tag">限时特惠</text>
+    <text class="banner-title">新品上市 全场8折</text>
+    <text class="banner-desc">精选好物 品质保证</text>
+  </view>
+
+  <!-- 分类入口 -->
+  <view class="category-section">
+    <view class="category-row">
+      <view class="category-item" bindtap="onCategoryTap" data-id="1">
+        <icon type="success" size="28" color="#FF6B35"></icon>
+        <text class="category-name">数码</text>
+      </view>
+      <view class="category-item" bindtap="onCategoryTap" data-id="2">
+        <icon type="info" size="28" color="#4A90D9"></icon>
+        <text class="category-name">服饰</text>
+      </view>
+      <view class="category-item" bindtap="onCategoryTap" data-id="3">
+        <icon type="warn" size="28" color="#FF69B4"></icon>
+        <text class="category-name">美妆</text>
+      </view>
+      <view class="category-item" bindtap="onCategoryTap" data-id="4">
+        <icon type="waiting" size="28" color="#52C41A"></icon>
+        <text class="category-name">食品</text>
+      </view>
     </view>
   </view>
 
-  <!-- 功能卡片 - 使用 wx:for 循环渲染 -->
+  <!-- 热销商品 -->
   <view class="section">
     <view class="section-header">
-      <icon type="success" size="20"></icon>
-      <text class="section-title">功能展示</text>
+      <text class="section-title">🔥 热销商品</text>
+      <text class="section-more" bindtap="onViewMore">更多 ></text>
     </view>
-    <view class="feature-grid">
-      <view class="feature-card" wx:for="{{features}}" wx:key="id" bindtap="onFeatureTap" data-id="{{item.id}}">
-        <icon type="{{item.icon}}" size="28" color="{{item.color}}"></icon>
-        <text class="feature-name">{{item.name}}</text>
-        <text class="feature-desc">{{item.desc}}</text>
+    
+    <view class="product-row">
+      <view class="product-card" wx:for="{{hotProducts}}" wx:key="id" bindtap="onProductTap" data-id="{{item.id}}">
+        <view class="product-img">
+          <icon type="success" size="40" color="#FF6B35"></icon>
+        </view>
+        <text class="product-name">{{item.name}}</text>
+        <view class="product-price-row">
+          <text class="product-price">¥{{item.price}}</text>
+          <view class="add-btn" catchtap="onAddCart" data-product="{{item}}">
+            <text class="add-btn-text">+</text>
+          </view>
+        </view>
       </view>
     </view>
   </view>
 
-  <!-- 图片展示 -->
+  <!-- 新品推荐 -->
   <view class="section">
     <view class="section-header">
-      <icon type="info" size="20"></icon>
-      <text class="section-title">图片 Image</text>
+      <text class="section-title">✨ 新品推荐</text>
     </view>
-    <view class="image-grid">
-      <view class="image-item" wx:for="{{images}}" wx:key="id">
-        <image class="demo-image" src="{{item.src}}" mode="{{item.mode}}"></image>
-        <text class="image-label">{{item.label}}</text>
+    
+    <view class="product-list">
+      <view class="list-item" wx:for="{{newProducts}}" wx:key="id" bindtap="onProductTap" data-id="{{item.id}}">
+        <view class="list-img">
+          <icon type="info" size="36" color="#4A90D9"></icon>
+        </view>
+        <view class="list-info">
+          <text class="list-name">{{item.name}}</text>
+          <text class="list-desc">{{item.desc}}</text>
+          <text class="list-price">¥{{item.price}}</text>
+        </view>
+        <button class="list-btn" size="mini" type="primary" catchtap="onAddCart" data-product="{{item}}">购买</button>
       </view>
     </view>
   </view>
 
-  <!-- 按钮组件 -->
-  <view class="section">
-    <view class="section-header">
-      <icon type="success" size="20"></icon>
-      <text class="section-title">按钮 Button</text>
-    </view>
-    <view class="button-group">
-      <button type="primary" bindtap="onNavigateToList">查看表单组件</button>
-      <button type="default" bindtap="onNavigateToDetail">查看更多组件</button>
-    </view>
-    <view class="button-row">
-      <button type="primary" size="mini">迷你</button>
-      <button type="default" size="mini">迷你</button>
-      <button type="warn" size="mini">迷你</button>
-    </view>
-  </view>
-
-  <!-- 条件渲染展示 -->
-  <view class="section">
-    <view class="section-header">
-      <icon type="waiting" size="20"></icon>
-      <text class="section-title">条件渲染</text>
-    </view>
-    <view class="condition-demo">
-      <view class="switch-row">
-        <text class="switch-label">显示内容</text>
-        <switch checked="{{showContent}}" bindchange="onToggleContent" color="#07C160"></switch>
-      </view>
-      <view class="content-box" wx:if="{{showContent}}">
-        <icon type="success" size="24"></icon>
-        <text class="content-text">这是条件渲染的内容</text>
-      </view>
-      <view class="content-box hidden-box" wx:if="{{!showContent}}">
-        <icon type="info" size="24"></icon>
-        <text class="content-text">内容已隐藏</text>
-      </view>
-    </view>
-  </view>
-
-  <!-- 列表渲染展示 -->
-  <view class="section">
-    <view class="section-header">
-      <icon type="info" size="20"></icon>
-      <text class="section-title">列表渲染 wx:for</text>
-    </view>
-    <view class="list-demo">
-      <view class="list-item" wx:for="{{todoList}}" wx:key="id">
-        <checkbox checked="{{item.done}}" color="#07C160"></checkbox>
-        <text class="list-text {{item.done ? 'done' : ''}}">{{item.text}}</text>
-        <text class="list-index">{{index + 1}}</text>
-      </view>
-    </view>
-  </view>
-
-  <!-- 进度条组件 -->
-  <view class="section">
-    <view class="section-header">
-      <icon type="waiting" size="20"></icon>
-      <text class="section-title">进度条 Progress</text>
-    </view>
-    <view class="progress-list">
-      <view class="progress-item" wx:for="{{progressList}}" wx:key="id">
-        <text class="progress-label">{{item.label}}</text>
-        <progress percent="{{item.value}}" activeColor="{{item.color}}" stroke-width="{{item.height}}" show-info="{{item.showInfo}}"></progress>
-      </view>
-    </view>
-  </view>
-
-  <!-- 开关组件 -->
-  <view class="section">
-    <view class="section-header">
-      <icon type="success_no_circle" size="20"></icon>
-      <text class="section-title">开关 Switch</text>
-    </view>
-    <view class="switch-list">
-      <view class="switch-item" wx:for="{{switchList}}" wx:key="id">
-        <text class="switch-label">{{item.label}}</text>
-        <switch checked="{{item.checked}}" type="{{item.type}}" color="{{item.color}}" disabled="{{item.disabled}}"></switch>
-      </view>
-    </view>
-  </view>
-
-  <!-- 底部间距 -->
   <view class="bottom-space"></view>
 </view>

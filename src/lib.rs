@@ -39,3 +39,7 @@ pub mod layout;
 // FFI 导出
 mod ffi;
 pub use ffi::*;
+
+// 单元测试
+#[cfg(test)]
+mod tests;

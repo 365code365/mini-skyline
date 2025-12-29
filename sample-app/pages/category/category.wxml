@@ -1,0 +1,41 @@
+<view class="page">
+  <!-- 分类标题 -->
+  <view class="header">
+    <text class="header-title">商品分类</text>
+  </view>
+
+  <!-- 分类列表 -->
+  <view class="category-list">
+    <view class="category-item {{currentCategory == 0 ? 'active' : ''}}" bindtap="onSelectCategory" data-index="0">
+      <text>数码产品</text>
+    </view>
+    <view class="category-item {{currentCategory == 1 ? 'active' : ''}}" bindtap="onSelectCategory" data-index="1">
+      <text>服饰鞋包</text>
+    </view>
+    <view class="category-item {{currentCategory == 2 ? 'active' : ''}}" bindtap="onSelectCategory" data-index="2">
+      <text>美妆护肤</text>
+    </view>
+    <view class="category-item {{currentCategory == 3 ? 'active' : ''}}" bindtap="onSelectCategory" data-index="3">
+      <text>食品饮料</text>
+    </view>
+    <view class="category-item {{currentCategory == 4 ? 'active' : ''}}" bindtap="onSelectCategory" data-index="4">
+      <text>家居生活</text>
+    </view>
+  </view>
+
+  <!-- 商品列表 -->
+  <view class="product-section">
+    <view class="product-item" wx:for="{{products}}" wx:key="id" bindtap="onProductTap" data-id="{{item.id}}">
+      <view class="product-icon">
+        <icon type="{{item.icon}}" size="32" color="{{item.color}}"></icon>
+      </view>
+      <view class="product-info">
+        <text class="product-name">{{item.name}}</text>
+        <text class="product-price">¥{{item.price}}</text>
+      </view>
+      <button class="buy-btn" size="mini" type="primary" catchtap="onAddCart" data-product="{{item}}">购买</button>
+    </view>
+  </view>
+
+  <view class="bottom-space"></view>
+</view>

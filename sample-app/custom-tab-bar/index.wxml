@@ -7,9 +7,7 @@
     data-index="{{index}}"
     data-path="{{item.pagePath}}"
   >
-    <view class="tabbar-icon {{selected == index ? 'icon-active' : ''}}">
-      <text class="icon-text">{{item.text}}</text>
-    </view>
+    <icon type="{{item.iconType}}" size="24" color="{{selected == index ? '#FF6B35' : '#999'}}"></icon>
     <text class="tabbar-label {{selected == index ? 'label-active' : ''}}">{{item.text}}</text>
   </view>
 </view>
