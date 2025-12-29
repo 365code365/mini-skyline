@@ -20,28 +20,41 @@ impl TextComponent {
         let sf = ctx.scale_factor;
         let font_size = ns.font_size * sf;
         let line_height = ns.line_height.map(|lh| lh * sf).unwrap_or(font_size * 1.5);
+        // 确保 line_height 至少等于 font_size
+        let actual_line_height = line_height.max(font_size * 1.2);
         
-        // 估算文本宽度
-        // 中文字符约等于 font_size，ASCII 字符约 0.5 * font_size
-        let estimated_width: f32 = text_content.chars().map(|c| {
-            if c == '\n' {
-                0.0 // 换行符不占宽度
-            } else if c.is_ascii() {
-                font_size * 0.5
-            } else {
-                font_size // 中文等全角字符
-            }
-        }).sum();
+        // 计算文本行数（考虑换行符）
+        let newline_count = text_content.matches('\n').count();
+        let min_lines = (newline_count + 1).max(1);
+        
+        // 估算文本宽度（单行最大宽度）
+        let mut max_line_width: f32 = 0.0;
+        for line in text_content.split('\n') {
+            let line_width: f32 = line.chars().map(|c| {
+                if c.is_ascii() {
+                    font_size * 0.6
+                } else {
+                    font_size
+                }
+            }).sum();
+            max_line_width = max_line_width.max(line_width);
+        }
         
         // 设置 flex-shrink 允许收缩
         ts.flex_shrink = 1.0;
         
-        // 设置最小高度为一行
-        ts.min_size.height = length(line_height);
+        // 设置最小高度为文本行数 * 行高
+        ts.min_size.height = length(actual_line_height * min_lines as f32);
         
-        // 如果没有设置宽度，使用估算的文本宽度
+        // 如果 CSS 没有设置宽度，根据 display 属性决定宽度
+        // display: block 时使用 100%，否则使用估算的文本宽度
         if matches!(ts.size.width, Dimension::Auto) {
-            ts.size.width = length(estimated_width);
+            if ns.is_block {
+                ts.size.width = Dimension::Percent(1.0);
+            } else {
+                // 使用估算的文本宽度
+                ts.size.width = length(max_line_width);
+            }
         }
         
         let tn = ctx.taffy.new_leaf(ts).unwrap();
@@ -103,7 +116,7 @@ impl TextComponent {
     }
 }
 
-/// 高级换行绘制（支持 line-height, letter-spacing）
+/// 高级换行绘制（支持 line-height, letter-spacing, 换行符）
 fn draw_text_wrapped_advanced(
     canvas: &mut Canvas,
     tr: &TextRenderer,
@@ -123,44 +136,62 @@ fn draw_text_wrapped_advanced(
         return;
     }
     
+    // 确保 line_height 至少等于 font_size
+    let actual_line_height = line_height.max(size * 1.2);
+    
     let mut current_y = y;
-    let mut line_start = 0;
-    let chars: Vec<char> = text.chars().collect();
-    let mut current_width = 0.0;
     let use_ellipsis = matches!(style.text_overflow, TextOverflow::Ellipsis);
     
-    for (i, ch) in chars.iter().enumerate() {
-        let char_width = tr.measure_char(*ch, size) + letter_spacing;
-        
-        // 检查是否需要换行
-        if current_width + char_width > max_width && i > line_start {
-            // 检查是否超出高度
-            if max_height > 0.0 && current_y + line_height > y + max_height - size {
-                // 最后一行，需要省略号
-                if use_ellipsis {
-                    let line: String = chars[line_start..i].iter().collect();
-                    draw_text_with_ellipsis(canvas, tr, &line, x, current_y, size, max_width, letter_spacing, paint);
-                }
-                return;
-            }
-            
-            // 绘制当前行
-            let line: String = chars[line_start..i].iter().collect();
-            tr.draw_text_with_spacing(canvas, &line, x, current_y, size, letter_spacing, paint);
-            
-            // 移动到下一行
-            current_y += line_height;
-            line_start = i;
-            current_width = char_width;
-        } else {
-            current_width += char_width;
-        }
-    }
+    // 先按换行符分割
+    let paragraphs: Vec<&str> = text.split('\n').collect();
     
-    // 绘制最后一行
-    if line_start < chars.len() {
-        let line: String = chars[line_start..].iter().collect();
-        tr.draw_text_with_spacing(canvas, &line, x, current_y, size, letter_spacing, paint);
+    for (para_idx, paragraph) in paragraphs.iter().enumerate() {
+        // 空段落也要换行
+        if paragraph.is_empty() {
+            current_y += actual_line_height;
+            continue;
+        }
+        
+        let chars: Vec<char> = paragraph.chars().collect();
+        let mut line_start = 0;
+        let mut current_width = 0.0;
+        
+        for (i, ch) in chars.iter().enumerate() {
+            let char_width = tr.measure_char(*ch, size) + letter_spacing;
+            
+            // 检查是否需要换行
+            if current_width + char_width > max_width && i > line_start {
+                // 检查是否超出高度
+                if max_height > 0.0 && current_y + actual_line_height > y + max_height - size {
+                    if use_ellipsis {
+                        let line: String = chars[line_start..i].iter().collect();
+                        draw_text_with_ellipsis(canvas, tr, &line, x, current_y, size, max_width, letter_spacing, paint);
+                    }
+                    return;
+                }
+                
+                // 绘制当前行
+                let line: String = chars[line_start..i].iter().collect();
+                tr.draw_text_with_spacing(canvas, &line, x, current_y, size, letter_spacing, paint);
+                
+                current_y += actual_line_height;
+                line_start = i;
+                current_width = char_width;
+            } else {
+                current_width += char_width;
+            }
+        }
+        
+        // 绘制段落的最后一行
+        if line_start < chars.len() {
+            let line: String = chars[line_start..].iter().collect();
+            tr.draw_text_with_spacing(canvas, &line, x, current_y, size, letter_spacing, paint);
+        }
+        
+        // 段落之间换行
+        if para_idx < paragraphs.len() - 1 {
+            current_y += actual_line_height;
+        }
     }
 }
 

@@ -45,12 +45,17 @@ impl InputComponent {
             ts.size.height = length(if is_textarea { 80.0 * sf } else { 42.0 * sf });
         }
         
-        ts.padding = Rect { 
-            top: length(8.0 * sf), 
-            right: length(12.0 * sf), 
-            bottom: length(8.0 * sf), 
-            left: length(12.0 * sf) 
-        };
+        // 只有在 CSS 没有设置 padding 时才使用默认值
+        let default_padding = length(0.0);
+        if ts.padding.top == default_padding && ts.padding.right == default_padding 
+            && ts.padding.bottom == default_padding && ts.padding.left == default_padding {
+            ts.padding = Rect { 
+                top: length(8.0 * sf), 
+                right: length(12.0 * sf), 
+                bottom: length(8.0 * sf), 
+                left: length(12.0 * sf) 
+            };
+        }
         
         // 默认样式
         if ns.background_color.is_none() {
@@ -59,8 +64,12 @@ impl InputComponent {
         if ns.border_color.is_none() {
             ns.border_color = Some(Color::from_hex(0xD9D9D9));
         }
-        ns.border_width = 1.0 * sf;
-        ns.border_radius = 4.0 * sf;
+        if ns.border_width == 0.0 {
+            ns.border_width = 1.0 * sf;
+        }
+        if ns.border_radius == 0.0 {
+            ns.border_radius = 4.0 * sf;
+        }
         ns.font_size = 16.0;
         
         // 显示文本

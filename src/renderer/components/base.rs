@@ -57,6 +57,8 @@ pub struct NodeStyle {
     pub fixed_left: Option<f32>,
     /// fixed 定位的 right 值
     pub fixed_right: Option<f32>,
+    /// 是否是 block 显示（占满整行）
+    pub is_block: bool,
 }
 
 #[derive(Clone, Copy, Default, PartialEq)]
@@ -322,7 +324,10 @@ pub fn build_base_style(
             "display" => if let StyleValue::String(s) = value {
                 match s.as_str() {
                     "none" => ts.display = Display::None,
-                    "block" => ts.display = Display::Flex,
+                    "block" => {
+                        ts.display = Display::Flex;
+                        ns.is_block = true;
+                    }
                     "flex" => ts.display = Display::Flex,
                     "grid" => ts.display = Display::Grid,
                     _ => ts.display = Display::Flex,
