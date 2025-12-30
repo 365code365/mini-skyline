@@ -166,10 +166,13 @@ impl MiniApp {
                 BridgeEvent::ShowToast { title, icon, .. } => {
                     println!("[Toast] {} ({})", title, icon);
                 }
-                BridgeEvent::ShowLoading(title) => {
+                BridgeEvent::ShowLoading { title, .. } => {
                     println!("[Loading] {}", title);
                 }
-                BridgeEvent::ShowModal { title, content } => {
+                BridgeEvent::HideLoading => {
+                    println!("[HideLoading]");
+                }
+                BridgeEvent::ShowModal { title, content, .. } => {
                     println!("[Modal] {}: {}", title, content);
                 }
                 BridgeEvent::NavigateTo(url) => {

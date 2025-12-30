@@ -20,175 +20,343 @@ impl MiniAppApi {
     
     /// 初始化所有 API
     pub fn init(&self) -> Result<(), String> {
-        // 初始化 console（必须先初始化，因为其他代码可能使用 console.log）
         println!("    init_console...");
         self.init_console().map_err(|e| format!("console: {}", e))?;
-        // 只初始化最基本的
         println!("    init_wx_object...");
         self.init_wx_object().map_err(|e| format!("wx: {}", e))?;
+        println!("    init_timer...");
+        self.init_timer_api().map_err(|e| format!("timer: {}", e))?;
+        println!("    init_storage...");
+        self.init_storage_api().map_err(|e| format!("storage: {}", e))?;
+        println!("    init_ui...");
+        self.init_ui_api().map_err(|e| format!("ui: {}", e))?;
+        println!("    init_canvas...");
+        self.init_canvas_api().map_err(|e| format!("canvas: {}", e))?;
         println!("    init_app...");
         self.init_app().map_err(|e| format!("app: {}", e))?;
         Ok(())
     }
     
-    /// 初始化 wx 对象
     fn init_wx_object(&self) -> Result<(), String> {
         let rt = self.runtime.lock().unwrap();
-        rt.eval("var wx = {};")?;
+        rt.eval("var wx = wx || {};")?;
         Ok(())
     }
     
-    /// 初始化 console API
     fn init_console(&self) -> Result<(), String> {
         let rt = self.runtime.lock().unwrap();
-        
-        // 先定义 native 函数的占位符
         rt.eval(r#"
             var __console_buffer = [];
-            
             var console = {
                 log: function() {
                     var msg = Array.prototype.slice.call(arguments).join(' ');
                     __console_buffer.push('[LOG] ' + msg);
-                    // 直接打印到标准输出（通过 native 函数）
-                    if (typeof __native_print === 'function') {
-                        __native_print(msg);
-                    }
+                    if (typeof __native_print === 'function') { __native_print(msg); }
                 },
                 error: function() {
                     var msg = Array.prototype.slice.call(arguments).join(' ');
                     __console_buffer.push('[ERROR] ' + msg);
-                    if (typeof __native_print === 'function') {
-                        __native_print('[ERROR] ' + msg);
-                    }
+                    if (typeof __native_print === 'function') { __native_print('[ERROR] ' + msg); }
                 },
                 warn: function() {
                     var msg = Array.prototype.slice.call(arguments).join(' ');
                     __console_buffer.push('[WARN] ' + msg);
-                    if (typeof __native_print === 'function') {
-                        __native_print('[WARN] ' + msg);
-                    }
+                    if (typeof __native_print === 'function') { __native_print('[WARN] ' + msg); }
                 },
                 info: function() {
                     var msg = Array.prototype.slice.call(arguments).join(' ');
                     __console_buffer.push('[INFO] ' + msg);
-                    if (typeof __native_print === 'function') {
-                        __native_print(msg);
-                    }
+                    if (typeof __native_print === 'function') { __native_print(msg); }
                 }
             };
         "#)?;
-        
         Ok(())
     }
     
-    /// 初始化 storage API
-    fn init_storage(&self) -> Result<(), String> {
+    fn init_timer_api(&self) -> Result<(), String> {
         let rt = self.runtime.lock().unwrap();
-        
-        rt.eval(r#"
-            var wx = wx || {};
-            
-            wx.setStorageSync = function(key, value) {
-                __native_storage_set(key, JSON.stringify(value));
-            };
-            
-            wx.getStorageSync = function(key) {
-                var value = __native_storage_get(key);
-                try {
-                    return JSON.parse(value);
-                } catch(e) {
-                    return value;
-                }
-            };
-            
-            wx.removeStorageSync = function(key) {
-                __native_storage_remove(key);
-            };
-            
-            wx.clearStorageSync = function() {
-                __native_storage_clear();
-            };
-            
-            // 异步版本
-            wx.setStorage = function(options) {
-                try {
-                    wx.setStorageSync(options.key, options.data);
-                    options.success && options.success();
-                } catch(e) {
-                    options.fail && options.fail(e);
-                }
-                options.complete && options.complete();
-            };
-            
-            wx.getStorage = function(options) {
-                try {
-                    var data = wx.getStorageSync(options.key);
-                    options.success && options.success({ data: data });
-                } catch(e) {
-                    options.fail && options.fail(e);
-                }
-                options.complete && options.complete();
-            };
-        "#)?;
-        
-        Ok(())
-    }
-    
-    /// 初始化定时器 API
-    fn init_timer(&self) -> Result<(), String> {
-        let rt = self.runtime.lock().unwrap();
-        
         rt.eval(r#"
             var __timers = {};
             var __timer_id = 0;
             
             function setTimeout(callback, delay) {
+                delay = delay || 0;
                 var id = ++__timer_id;
-                __timers[id] = {
-                    callback: callback,
-                    delay: delay,
-                    type: 'timeout',
-                    startTime: Date.now()
-                };
-                __native_set_timer(id, delay, false);
+                __timers[id] = { callback: callback, delay: delay, type: 'timeout' };
+                if (typeof __native_set_timer === 'function') {
+                    __native_set_timer(String(id), String(delay), 'false');
+                }
                 return id;
             }
             
             function setInterval(callback, delay) {
+                delay = delay || 0;
                 var id = ++__timer_id;
-                __timers[id] = {
-                    callback: callback,
-                    delay: delay,
-                    type: 'interval',
-                    startTime: Date.now()
-                };
-                __native_set_timer(id, delay, true);
+                __timers[id] = { callback: callback, delay: delay, type: 'interval' };
+                if (typeof __native_set_timer === 'function') {
+                    __native_set_timer(String(id), String(delay), 'true');
+                }
                 return id;
             }
             
             function clearTimeout(id) {
-                delete __timers[id];
-                __native_clear_timer(id);
-            }
-            
-            function clearInterval(id) {
-                delete __timers[id];
-                __native_clear_timer(id);
-            }
-            
-            // 由 native 调用
-            function __trigger_timer(id) {
-                var timer = __timers[id];
-                if (timer) {
-                    timer.callback();
-                    if (timer.type === 'timeout') {
-                        delete __timers[id];
+                if (__timers[id]) {
+                    delete __timers[id];
+                    if (typeof __native_clear_timer === 'function') {
+                        __native_clear_timer(String(id));
                     }
                 }
             }
+            
+            function clearInterval(id) { clearTimeout(id); }
+            
+            function __trigger_timer(id) {
+                var timer = __timers[id];
+                if (timer && typeof timer.callback === 'function') {
+                    try { timer.callback(); } catch (e) { console.error('Timer error:', e); }
+                    if (timer.type === 'timeout') { delete __timers[id]; }
+                }
+            }
         "#)?;
-        
+        Ok(())
+    }
+    
+    fn init_storage_api(&self) -> Result<(), String> {
+        let rt = self.runtime.lock().unwrap();
+        rt.eval(r#"
+            var __storage = {};
+            
+            wx.setStorageSync = function(key, data) {
+                var value = typeof data === 'string' ? data : JSON.stringify(data);
+                __storage[key] = value;
+                if (typeof __native_storage_set === 'function') { __native_storage_set(key, value); }
+            };
+            
+            wx.getStorageSync = function(key) {
+                var value = __storage[key];
+                if (value === undefined && typeof __native_storage_get === 'function') {
+                    value = __native_storage_get(key);
+                    if (value) { __storage[key] = value; }
+                }
+                if (value === undefined || value === '') { return ''; }
+                try { return JSON.parse(value); } catch(e) { return value; }
+            };
+            
+            wx.removeStorageSync = function(key) {
+                delete __storage[key];
+                if (typeof __native_storage_remove === 'function') { __native_storage_remove(key); }
+            };
+            
+            wx.clearStorageSync = function() {
+                __storage = {};
+                if (typeof __native_storage_clear === 'function') { __native_storage_clear(); }
+            };
+            
+            wx.getStorageInfoSync = function() {
+                var keys = Object.keys(__storage);
+                var currentSize = 0;
+                for (var i = 0; i < keys.length; i++) { currentSize += (__storage[keys[i]] || '').length; }
+                return { keys: keys, currentSize: Math.ceil(currentSize / 1024), limitSize: 10240 };
+            };
+            
+            wx.setStorage = function(options) {
+                options = options || {};
+                try { wx.setStorageSync(options.key, options.data); options.success && options.success(); }
+                catch(e) { options.fail && options.fail({ errMsg: 'setStorage:fail' }); }
+                options.complete && options.complete();
+            };
+            
+            wx.getStorage = function(options) {
+                options = options || {};
+                try { var data = wx.getStorageSync(options.key); options.success && options.success({ data: data }); }
+                catch(e) { options.fail && options.fail({ errMsg: 'getStorage:fail' }); }
+                options.complete && options.complete();
+            };
+            
+            wx.removeStorage = function(options) {
+                options = options || {};
+                try { wx.removeStorageSync(options.key); options.success && options.success(); }
+                catch(e) { options.fail && options.fail({ errMsg: 'removeStorage:fail' }); }
+                options.complete && options.complete();
+            };
+            
+            wx.clearStorage = function(options) {
+                options = options || {};
+                try { wx.clearStorageSync(); options.success && options.success(); }
+                catch(e) { options.fail && options.fail({ errMsg: 'clearStorage:fail' }); }
+                options.complete && options.complete();
+            };
+        "#)?;
+        Ok(())
+    }
+    
+    fn init_ui_api(&self) -> Result<(), String> {
+        let rt = self.runtime.lock().unwrap();
+        rt.eval(r#"
+            var __toastTimer = null;
+            var __toastVisible = false;
+            var __toastConfig = null;
+            var __loadingVisible = false;
+            var __loadingConfig = null;
+            var __modalVisible = false;
+            var __modalConfig = null;
+            var __modalCallback = null;
+            
+            wx.showToast = function(options) {
+                options = options || {};
+                var title = options.title || '';
+                var icon = options.icon || 'success';
+                var duration = options.duration || 1500;
+                var mask = options.mask || false;
+                
+                if (__toastTimer) { clearTimeout(__toastTimer); __toastTimer = null; }
+                __toastVisible = true;
+                __toastConfig = { title: title, icon: icon, mask: mask };
+                
+                if (typeof __native_show_toast === 'function') {
+                    __native_show_toast(title, icon, String(duration), mask ? 'true' : 'false');
+                }
+                __native_print('[Toast] ' + title + ' (' + icon + ')');
+                
+                __toastTimer = setTimeout(function() { wx.hideToast(); }, duration);
+                options.success && options.success();
+                options.complete && options.complete();
+            };
+            
+            wx.hideToast = function(options) {
+                options = options || {};
+                if (__toastTimer) { clearTimeout(__toastTimer); __toastTimer = null; }
+                __toastVisible = false;
+                __toastConfig = null;
+                if (typeof __native_hide_toast === 'function') { __native_hide_toast(); }
+                options.success && options.success();
+                options.complete && options.complete();
+            };
+            
+            wx.showLoading = function(options) {
+                options = options || {};
+                __loadingVisible = true;
+                __loadingConfig = { title: options.title || '', mask: options.mask || false };
+                if (typeof __native_show_loading === 'function') {
+                    __native_show_loading(options.title || '', options.mask ? 'true' : 'false');
+                }
+                __native_print('[Loading] ' + (options.title || ''));
+                options.success && options.success();
+                options.complete && options.complete();
+            };
+            
+            wx.hideLoading = function(options) {
+                options = options || {};
+                __loadingVisible = false;
+                __loadingConfig = null;
+                if (typeof __native_hide_loading === 'function') { __native_hide_loading(); }
+                options.success && options.success();
+                options.complete && options.complete();
+            };
+            
+            wx.showModal = function(options) {
+                options = options || {};
+                __modalVisible = true;
+                __modalConfig = {
+                    title: options.title || '',
+                    content: options.content || '',
+                    showCancel: options.showCancel !== false,
+                    cancelText: options.cancelText || '取消',
+                    confirmText: options.confirmText || '确定'
+                };
+                __modalCallback = options;
+                
+                if (typeof __native_show_modal === 'function') {
+                    __native_show_modal(__modalConfig.title, __modalConfig.content, 
+                        __modalConfig.showCancel ? 'true' : 'false', __modalConfig.cancelText, __modalConfig.confirmText);
+                }
+                __native_print('[Modal] ' + __modalConfig.title + ': ' + __modalConfig.content);
+            };
+            
+            function __handleModalResult(confirm) {
+                if (__modalCallback) {
+                    var result = { confirm: confirm, cancel: !confirm };
+                    __modalCallback.success && __modalCallback.success(result);
+                    __modalCallback.complete && __modalCallback.complete(result);
+                }
+                __modalVisible = false;
+                __modalConfig = null;
+                __modalCallback = null;
+            }
+            
+            wx.showActionSheet = function(options) {
+                options = options || {};
+                __native_print('[ActionSheet] ' + (options.itemList || []).join(', '));
+                options.success && options.success({ tapIndex: 0 });
+                options.complete && options.complete();
+            };
+            
+            function __getUIState() {
+                return JSON.stringify({
+                    toast: __toastVisible ? __toastConfig : null,
+                    loading: __loadingVisible ? __loadingConfig : null,
+                    modal: __modalVisible ? __modalConfig : null
+                });
+            }
+        "#)?;
+        Ok(())
+    }
+    
+    fn init_canvas_api(&self) -> Result<(), String> {
+        let rt = self.runtime.lock().unwrap();
+        rt.eval(r#"
+            var __canvasContexts = {};
+            
+            wx.createCanvasContext = function(canvasId, component) {
+                var ctx = {
+                    _canvasId: canvasId,
+                    _commands: [],
+                    setFillStyle: function(color) { this._commands.push({ type: 'setFillStyle', color: color }); return this; },
+                    setStrokeStyle: function(color) { this._commands.push({ type: 'setStrokeStyle', color: color }); return this; },
+                    setLineWidth: function(width) { this._commands.push({ type: 'setLineWidth', width: width }); return this; },
+                    setLineCap: function(cap) { this._commands.push({ type: 'setLineCap', cap: cap }); return this; },
+                    setLineJoin: function(join) { this._commands.push({ type: 'setLineJoin', join: join }); return this; },
+                    setFontSize: function(size) { this._commands.push({ type: 'setFontSize', size: size }); return this; },
+                    setTextAlign: function(align) { this._commands.push({ type: 'setTextAlign', align: align }); return this; },
+                    setTextBaseline: function(baseline) { this._commands.push({ type: 'setTextBaseline', baseline: baseline }); return this; },
+                    setGlobalAlpha: function(alpha) { this._commands.push({ type: 'setGlobalAlpha', alpha: alpha }); return this; },
+                    fillRect: function(x, y, w, h) { this._commands.push({ type: 'fillRect', x: x, y: y, width: w, height: h }); return this; },
+                    strokeRect: function(x, y, w, h) { this._commands.push({ type: 'strokeRect', x: x, y: y, width: w, height: h }); return this; },
+                    clearRect: function(x, y, w, h) { this._commands.push({ type: 'clearRect', x: x, y: y, width: w, height: h }); return this; },
+                    beginPath: function() { this._commands.push({ type: 'beginPath' }); return this; },
+                    closePath: function() { this._commands.push({ type: 'closePath' }); return this; },
+                    moveTo: function(x, y) { this._commands.push({ type: 'moveTo', x: x, y: y }); return this; },
+                    lineTo: function(x, y) { this._commands.push({ type: 'lineTo', x: x, y: y }); return this; },
+                    arc: function(x, y, r, s, e, cc) { this._commands.push({ type: 'arc', x: x, y: y, r: r, sAngle: s, eAngle: e, counterclockwise: cc || false }); return this; },
+                    quadraticCurveTo: function(cpx, cpy, x, y) { this._commands.push({ type: 'quadraticCurveTo', cpx: cpx, cpy: cpy, x: x, y: y }); return this; },
+                    bezierCurveTo: function(cp1x, cp1y, cp2x, cp2y, x, y) { this._commands.push({ type: 'bezierCurveTo', cp1x: cp1x, cp1y: cp1y, cp2x: cp2x, cp2y: cp2y, x: x, y: y }); return this; },
+                    fill: function() { this._commands.push({ type: 'fill' }); return this; },
+                    stroke: function() { this._commands.push({ type: 'stroke' }); return this; },
+                    fillText: function(text, x, y, maxWidth) { this._commands.push({ type: 'fillText', text: text, x: x, y: y, maxWidth: maxWidth }); return this; },
+                    strokeText: function(text, x, y, maxWidth) { this._commands.push({ type: 'strokeText', text: text, x: x, y: y, maxWidth: maxWidth }); return this; },
+                    drawImage: function(src, sx, sy, sw, sh, dx, dy, dw, dh) {
+                        if (arguments.length === 3) { this._commands.push({ type: 'drawImage', src: src, dx: sx, dy: sy }); }
+                        else if (arguments.length === 5) { this._commands.push({ type: 'drawImage', src: src, dx: sx, dy: sy, dWidth: sw, dHeight: sh }); }
+                        else { this._commands.push({ type: 'drawImage', src: src, sx: sx, sy: sy, sWidth: sw, sHeight: sh, dx: dx, dy: dy, dWidth: dw, dHeight: dh }); }
+                        return this;
+                    },
+                    save: function() { this._commands.push({ type: 'save' }); return this; },
+                    restore: function() { this._commands.push({ type: 'restore' }); return this; },
+                    translate: function(x, y) { this._commands.push({ type: 'translate', x: x, y: y }); return this; },
+                    rotate: function(angle) { this._commands.push({ type: 'rotate', angle: angle }); return this; },
+                    scale: function(sx, sy) { this._commands.push({ type: 'scale', scaleX: sx, scaleY: sy }); return this; },
+                    draw: function(reserve, callback) {
+                        if (typeof __native_canvas_draw === 'function') {
+                            __native_canvas_draw(this._canvasId, JSON.stringify(this._commands));
+                        }
+                        if (!reserve) { this._commands = []; }
+                        if (typeof callback === 'function') { setTimeout(callback, 0); }
+                    }
+                };
+                __canvasContexts[canvasId] = ctx;
+                return ctx;
+            };
+        "#)?;
         Ok(())
     }
     
@@ -339,128 +507,23 @@ impl MiniAppApi {
                 options.success && options.success();
             };
             
-            // Toast API
-            wx.showToast = function(options) {
-                __native_print('[Toast] ' + (options.title || ''));
-                options.success && options.success();
-            };
-            
-            wx.hideToast = function() {};
-            wx.showLoading = function(options) {
-                __native_print('[Loading] ' + (options.title || ''));
-            };
-            wx.hideLoading = function() {};
-        "#)?;
-        
-        Ok(())
-    }
-    
-    /// 初始化 UI API
-    fn init_ui(&self) -> Result<(), String> {
-        let rt = self.runtime.lock().unwrap();
-        
-        rt.eval(r#"
-            // UI 相关 API
-            wx.showToast = function(options) {
-                __native_show_toast(options.title, options.icon || 'success', options.duration || 1500);
-                options.success && options.success();
-            };
-            
-            wx.hideToast = function() {
-                __native_hide_toast();
-            };
-            
-            wx.showLoading = function(options) {
-                __native_show_loading(options.title);
-                options.success && options.success();
-            };
-            
-            wx.hideLoading = function() {
-                __native_hide_loading();
-            };
-            
-            wx.showModal = function(options) {
-                __native_show_modal(
-                    options.title || '',
-                    options.content || '',
-                    options.showCancel !== false,
-                    options.confirmText || '确定',
-                    options.cancelText || '取消'
-                );
-            };
-            
-            wx.showActionSheet = function(options) {
-                __native_show_action_sheet(JSON.stringify(options.itemList));
-            };
-            
-            // 获取系统信息
+            // 系统信息 API
             wx.getSystemInfoSync = function() {
                 return {
                     platform: 'mini-app',
                     version: '1.0.0',
                     SDKVersion: '1.0.0',
-                    windowWidth: __native_get_window_width(),
-                    windowHeight: __native_get_window_height(),
+                    windowWidth: 375,
+                    windowHeight: 667,
                     pixelRatio: 2
                 };
             };
             
             wx.getSystemInfo = function(options) {
+                options = options || {};
                 var info = wx.getSystemInfoSync();
                 options.success && options.success(info);
                 options.complete && options.complete();
-            };
-            
-            // Canvas API
-            wx.createCanvasContext = function(canvasId) {
-                return {
-                    _canvasId: canvasId,
-                    _commands: [],
-                    
-                    setFillStyle: function(color) {
-                        this._commands.push({ type: 'setFillStyle', color: color });
-                    },
-                    setStrokeStyle: function(color) {
-                        this._commands.push({ type: 'setStrokeStyle', color: color });
-                    },
-                    setLineWidth: function(width) {
-                        this._commands.push({ type: 'setLineWidth', width: width });
-                    },
-                    fillRect: function(x, y, w, h) {
-                        this._commands.push({ type: 'fillRect', x: x, y: y, w: w, h: h });
-                    },
-                    strokeRect: function(x, y, w, h) {
-                        this._commands.push({ type: 'strokeRect', x: x, y: y, w: w, h: h });
-                    },
-                    arc: function(x, y, r, start, end) {
-                        this._commands.push({ type: 'arc', x: x, y: y, r: r, start: start, end: end });
-                    },
-                    fill: function() {
-                        this._commands.push({ type: 'fill' });
-                    },
-                    stroke: function() {
-                        this._commands.push({ type: 'stroke' });
-                    },
-                    beginPath: function() {
-                        this._commands.push({ type: 'beginPath' });
-                    },
-                    closePath: function() {
-                        this._commands.push({ type: 'closePath' });
-                    },
-                    moveTo: function(x, y) {
-                        this._commands.push({ type: 'moveTo', x: x, y: y });
-                    },
-                    lineTo: function(x, y) {
-                        this._commands.push({ type: 'lineTo', x: x, y: y });
-                    },
-                    draw: function(reserve, callback) {
-                        __native_canvas_draw(this._canvasId, JSON.stringify(this._commands));
-                        if (!reserve) {
-                            this._commands = [];
-                        }
-                        callback && callback();
-                    }
-                };
             };
         "#)?;
         

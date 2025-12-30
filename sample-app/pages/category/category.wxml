@@ -1,41 +1,94 @@
 <view class="page">
-  <!-- 分类标题 -->
-  <view class="header">
-    <text class="header-title">商品分类</text>
-  </view>
-
-  <!-- 分类列表 -->
-  <view class="category-list">
-    <view class="category-item {{currentCategory == 0 ? 'active' : ''}}" bindtap="onSelectCategory" data-index="0">
-      <text>数码产品</text>
-    </view>
-    <view class="category-item {{currentCategory == 1 ? 'active' : ''}}" bindtap="onSelectCategory" data-index="1">
-      <text>服饰鞋包</text>
-    </view>
-    <view class="category-item {{currentCategory == 2 ? 'active' : ''}}" bindtap="onSelectCategory" data-index="2">
-      <text>美妆护肤</text>
-    </view>
-    <view class="category-item {{currentCategory == 3 ? 'active' : ''}}" bindtap="onSelectCategory" data-index="3">
-      <text>食品饮料</text>
-    </view>
-    <view class="category-item {{currentCategory == 4 ? 'active' : ''}}" bindtap="onSelectCategory" data-index="4">
-      <text>家居生活</text>
+  <!-- 顶部搜索栏 -->
+  <view class="search-bar">
+    <view class="search-input">
+      <icon type="search" size="16" color="#999"></icon>
+      <text class="search-placeholder">搜索商品</text>
     </view>
   </view>
 
-  <!-- 商品列表 -->
-  <view class="product-section">
-    <view class="product-item" wx:for="{{products}}" wx:key="id" bindtap="onProductTap" data-id="{{item.id}}">
-      <view class="product-icon">
-        <icon type="{{item.icon}}" size="32" color="{{item.color}}"></icon>
+  <!-- 主体内容：左侧分类 + 右侧商品 -->
+  <view class="main-content">
+    <!-- 左侧分类导航 -->
+    <view class="category-nav">
+      <view wx:for="{{categories}}" wx:key="id"
+            class="category-item {{currentCategory == item.id ? 'active' : ''}}"
+            bindtap="onSelectCategory" data-id="{{item.id}}">
+        <text>{{item.name}}</text>
+        <view wx:if="{{item.count > 0}}" class="category-badge">{{item.count}}</view>
       </view>
-      <view class="product-info">
-        <text class="product-name">{{item.name}}</text>
-        <text class="product-price">¥{{item.price}}</text>
+    </view>
+
+    <!-- 右侧商品列表 -->
+    <view class="product-list">
+      <view class="category-title">
+        <text>{{currentCategoryName}}</text>
       </view>
-      <button class="buy-btn" size="mini" type="primary" catchtap="onAddCart" data-product="{{item}}">购买</button>
+      
+      <view wx:for="{{products}}" wx:key="id" class="product-item">
+        <view class="product-image">
+          <icon type="{{item.icon}}" size="40" color="{{item.color}}"></icon>
+        </view>
+        <view class="product-info">
+          <text class="product-name">{{item.name}}</text>
+          <text class="product-desc">{{item.desc}}</text>
+          <view class="product-bottom">
+            <text class="product-price">¥{{item.price}}</text>
+            <view class="quantity-control">
+              <view wx:if="{{item.quantity > 0}}" class="minus-btn" catchtap="onMinus" data-id="{{item.id}}">
+                <text>-</text>
+              </view>
+              <text wx:if="{{item.quantity > 0}}" class="quantity">{{item.quantity}}</text>
+              <view class="plus-btn" catchtap="onPlus" data-id="{{item.id}}">
+                <text>+</text>
+              </view>
+            </view>
+          </view>
+        </view>
+      </view>
     </view>
   </view>
 
-  <view class="bottom-space"></view>
+  <!-- 底部购物车栏 -->
+  <view class="cart-bar" style="position: fixed; bottom: 112rpx; left: 0; right: 0;">
+    <view class="cart-left" bindtap="onShowCart">
+      <view class="cart-icon-wrap">
+        <icon type="success" size="28" color="#fff"></icon>
+        <view wx:if="{{totalCount > 0}}" class="cart-badge">{{totalCount}}</view>
+      </view>
+      <view class="cart-info">
+        <text class="cart-total">¥{{totalPrice}}</text>
+        <text class="cart-tip">另需配送费¥5</text>
+      </view>
+    </view>
+    <view class="cart-right {{totalCount > 0 ? 'active' : ''}}" bindtap="onCheckout">
+      <text>{{totalCount > 0 ? '去结算' : '未选购商品'}}</text>
+    </view>
+  </view>
+
+  <!-- 购物车弹窗 -->
+  <view wx:if="{{showCartPopup}}" class="cart-popup-mask" bindtap="onHideCart"></view>
+  <view wx:if="{{showCartPopup}}" class="cart-popup" style="position: fixed; bottom: 168rpx; left: 0; right: 0;">
+    <view class="cart-popup-header">
+      <text class="cart-popup-title">已选商品</text>
+      <view class="cart-clear" bindtap="onClearCart">
+        <text>清空</text>
+      </view>
+    </view>
+    <view class="cart-popup-list">
+      <view wx:for="{{cartItems}}" wx:key="id" class="cart-popup-item">
+        <text class="cart-item-name">{{item.name}}</text>
+        <text class="cart-item-price">¥{{item.price}}</text>
+        <view class="quantity-control">
+          <view class="minus-btn" catchtap="onCartMinus" data-id="{{item.id}}">
+            <text>-</text>
+          </view>
+          <text class="quantity">{{item.quantity}}</text>
+          <view class="plus-btn" catchtap="onCartPlus" data-id="{{item.id}}">
+            <text>+</text>
+          </view>
+        </view>
+      </view>
+    </view>
+  </view>
 </view>
