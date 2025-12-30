@@ -1,6 +1,5 @@
 //! 渲染相关逻辑
 
-use std::num::NonZeroU32;
 use mini_render::Canvas;
 
 /// 将内容渲染到窗口缓冲区
@@ -21,17 +20,32 @@ pub fn present_to_buffer(
     
     let content_area_height = buffer_height - if has_tabbar { tabbar_physical_height } else { 0 };
     
+    // 背景色 (0xF5F5F5)
+    let bg_color: u32 = 0xF5F5F5;
+    
     // 渲染内容区域
     for y in 0..content_area_height {
-        let src_y = (y as i32 + scroll_offset).clamp(0, canvas_height as i32 - 1) as u32;
-        for x in 0..buffer_width.min(canvas_width) {
-            let src_idx = ((src_y * canvas_width + x) * 4) as usize;
-            let dst_idx = (y * buffer_width + x) as usize;
-            if src_idx + 3 < canvas_data.len() && dst_idx < buffer.len() {
-                let r = canvas_data[src_idx] as u32;
-                let g = canvas_data[src_idx + 1] as u32;
-                let b = canvas_data[src_idx + 2] as u32;
-                buffer[dst_idx] = (r << 16) | (g << 8) | b;
+        let src_y_raw = y as i32 + scroll_offset;
+        
+        // 如果源 y 超出 canvas 范围，填充背景色
+        if src_y_raw < 0 || src_y_raw >= canvas_height as i32 {
+            for x in 0..buffer_width {
+                let dst_idx = (y * buffer_width + x) as usize;
+                if dst_idx < buffer.len() {
+                    buffer[dst_idx] = bg_color;
+                }
+            }
+        } else {
+            let src_y = src_y_raw as u32;
+            for x in 0..buffer_width.min(canvas_width) {
+                let src_idx = ((src_y * canvas_width + x) * 4) as usize;
+                let dst_idx = (y * buffer_width + x) as usize;
+                if src_idx + 3 < canvas_data.len() && dst_idx < buffer.len() {
+                    let r = canvas_data[src_idx] as u32;
+                    let g = canvas_data[src_idx + 1] as u32;
+                    let b = canvas_data[src_idx + 2] as u32;
+                    buffer[dst_idx] = (r << 16) | (g << 8) | b;
+                }
             }
         }
     }
