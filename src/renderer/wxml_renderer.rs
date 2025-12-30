@@ -78,7 +78,7 @@ impl WxmlRenderer {
     }
     
     /// 渲染 WXML 节点，支持滚动偏移和自定义视口高度（用于 fixed 定位）
-    /// 返回实际内容高度（用于更新滚动范围）
+    /// 返回实际内容高度
     pub fn render_with_scroll_and_viewport(
         &mut self, 
         canvas: &mut Canvas, 

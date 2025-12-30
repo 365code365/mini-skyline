@@ -236,5 +236,5 @@
 }
 
 .bottom-space {
-  height: 120rpx;
+  height: 200rpx;
 }

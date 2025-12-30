@@ -48,7 +48,10 @@
     <text class="detail-text">{{product.detail}}</text>
   </view>
 
-  <!-- 底部操作 -->
+  <!-- 底部空白，避免被 action-bar 遮挡 -->
+  <view class="bottom-space"></view>
+
+  <!-- 底部操作 (fixed) -->
   <view class="action-bar">
     <view class="action-left">
       <view class="action-item" bindtap="onGoHome">
@@ -65,6 +68,4 @@
       <button class="buy-btn" type="primary" bindtap="onBuyNow">立即购买</button>
     </view>
   </view>
-
-  <view class="bottom-space"></view>
 </view>

@@ -109,6 +109,7 @@ struct ScrollController {
     velocity: f32,
     min_scroll: f32,
     max_scroll: f32,
+    last_content_height: f32,
     is_dragging: bool,
     drag_start_pos: f32,
     drag_start_scroll: f32,
@@ -127,6 +128,7 @@ impl ScrollController {
             velocity: 0.0,
             min_scroll: 0.0,
             max_scroll: (content_height - viewport_height).max(0.0),
+            last_content_height: content_height,
             is_dragging: false,
             drag_start_pos: 0.0,
             drag_start_scroll: 0.0,
@@ -141,17 +143,18 @@ impl ScrollController {
     
     /// 更新内容高度（当实际内容高度变化时调用）
     fn update_content_height(&mut self, content_height: f32, viewport_height: f32) {
-        self.max_scroll = (content_height - viewport_height).max(0.0);
-        // 如果当前滚动位置超出新的最大值，调整到最大值
-        if self.position > self.max_scroll {
-            self.position = self.max_scroll;
-        }
-        // Debug
-        static DEBUG_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-        let count = DEBUG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        if count < 5 {
-            eprintln!("[SCROLL] content={:.0} viewport={:.0} max_scroll={:.0}", 
-                content_height, viewport_height, self.max_scroll);
+        // 只在内容高度变化时更新 max_scroll，避免滚动过程中闪烁
+        if (content_height - self.last_content_height).abs() > 1.0 {
+            self.last_content_height = content_height;
+            // 减去底部空白区域（bottom-space + section padding/margin），让最后一个实际内容刚好贴近 TabBar 顶部
+            // bottom-space: 90px, section padding: 12px, section margin: 10px, 额外空间: ~50px
+            let bottom_padding = 160.0;
+            let actual_content_height = content_height - bottom_padding;
+            self.max_scroll = (actual_content_height - viewport_height).max(0.0);
+            // 如果当前滚动位置超出新的最大值，调整到最大值
+            if self.position > self.max_scroll {
+                self.position = self.max_scroll;
+            }
         }
     }
     
@@ -663,14 +666,18 @@ impl MiniAppWindow {
         let viewport_height = (LOGICAL_HEIGHT - if has_tabbar { TABBAR_HEIGHT } else { 0 }) as f32;
         
         // 渲染内容区域（不包括 fixed 元素）
+        let mut content_height = 0.0f32;
         if let Some(canvas) = &mut self.canvas {
             canvas.clear(Color::from_hex(0xF5F5F5));
             
             if let Some(renderer) = &mut self.renderer {
-                let content_height = renderer.render_with_scroll_and_viewport(canvas, &wxml_nodes, &page_data, &mut self.interaction, scroll_offset, viewport_height);
-                // 更新滚动范围（根据实际内容高度）
-                self.scroll.update_content_height(content_height, viewport_height);
+                content_height = renderer.render_with_scroll_and_viewport(canvas, &wxml_nodes, &page_data, &mut self.interaction, scroll_offset, viewport_height);
             }
+        }
+        
+        // 更新滚动范围（根据实际内容高度）
+        if content_height > 0.0 {
+            self.scroll.update_content_height(content_height, viewport_height);
         }
         
         // 渲染 fixed 元素到单独的 canvas
