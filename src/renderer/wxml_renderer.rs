@@ -287,8 +287,20 @@ impl WxmlRenderer {
             node_to_draw.style.text_color = Some(text_color);
         }
         
-        // 绘制组件
-        self.draw_component(canvas, &node_to_draw, x, y, w, h, sf);
+        // 绘制组件 - 特殊处理 button 组件以支持按下状态
+        let component_id = Self::get_component_id(node, &logical_bounds);
+        match node.tag.as_str() {
+            "button" => {
+                let pressed = interaction.is_button_pressed(&component_id);
+                ButtonComponent::draw_with_state(
+                    &node_to_draw, canvas, self.text_renderer.as_ref(),
+                    x, y, w, h, sf, pressed
+                );
+            }
+            _ => {
+                self.draw_component(canvas, &node_to_draw, x, y, w, h, sf);
+            }
+        }
         
         // 递归绘制子节点
         if !Self::is_leaf_component(&node.tag) {

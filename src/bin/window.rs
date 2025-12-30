@@ -934,8 +934,10 @@ impl MiniAppWindow {
             // fixed 元素的事件绑定是相对于视口的
             let fixed_binding = if let Some(renderer) = &self.renderer {
                 if let Some(binding) = renderer.hit_test(x, y) {
-                    // 检查这个绑定是否在视口范围内（可能是 fixed 元素）
-                    if binding.bounds.y >= 0.0 && binding.bounds.y < tabbar_y {
+                    // 检查这个绑定是否在视口范围内（fixed 元素的 bounds 是相对于视口的）
+                    // 对于没有 TabBar 的页面，整个屏幕都是内容区域
+                    let viewport_height = if has_tabbar { tabbar_y } else { LOGICAL_HEIGHT as f32 };
+                    if binding.bounds.y >= 0.0 && binding.bounds.y + binding.bounds.height <= viewport_height + 10.0 {
                         Some((binding.event_type.clone(), binding.handler.clone(), binding.data.clone(), binding.bounds))
                     } else {
                         None
@@ -1507,8 +1509,35 @@ impl ApplicationHandler for MiniAppWindow {
                         let y = self.mouse_pos.1;
                         let actual_y = y + self.scroll.get_position();
                         
-                        // 检查是否点击了交互元素
-                        if let Some(element) = self.interaction.hit_test(x, actual_y) {
+                        // 首先检查 fixed 元素（使用视口坐标）
+                        if let Some(element) = self.interaction.hit_test(x, y) {
+                            let element = element.clone();
+                            
+                            match element.interaction_type {
+                                mini_render::ui::interaction::InteractionType::Slider => {
+                                    // 开始滑块拖动
+                                    if !element.disabled {
+                                        if let Some(result) = self.interaction.handle_click(x, y) {
+                                            self.handle_interaction_result(result);
+                                            self.needs_redraw = true;
+                                            if let Some(w) = &self.window { w.request_redraw(); }
+                                        }
+                                    }
+                                    return;
+                                }
+                                mini_render::ui::interaction::InteractionType::Button => {
+                                    // 设置按钮按下状态
+                                    if !element.disabled {
+                                        self.interaction.set_button_pressed(element.id.clone(), element.bounds);
+                                        self.needs_redraw = true;
+                                        if let Some(w) = &self.window { w.request_redraw(); }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        // 然后检查普通元素（使用滚动后的坐标）
+                        else if let Some(element) = self.interaction.hit_test(x, actual_y) {
                             let element = element.clone();
                             
                             match element.interaction_type {
