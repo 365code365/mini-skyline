@@ -139,6 +139,22 @@ impl ScrollController {
         }
     }
     
+    /// 更新内容高度（当实际内容高度变化时调用）
+    fn update_content_height(&mut self, content_height: f32, viewport_height: f32) {
+        self.max_scroll = (content_height - viewport_height).max(0.0);
+        // 如果当前滚动位置超出新的最大值，调整到最大值
+        if self.position > self.max_scroll {
+            self.position = self.max_scroll;
+        }
+        // Debug
+        static DEBUG_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let count = DEBUG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if count < 5 {
+            eprintln!("[SCROLL] content={:.0} viewport={:.0} max_scroll={:.0}", 
+                content_height, viewport_height, self.max_scroll);
+        }
+    }
+    
     fn begin_drag(&mut self, y: f32) {
         self.is_dragging = true;
         self.is_decelerating = false;
@@ -651,7 +667,9 @@ impl MiniAppWindow {
             canvas.clear(Color::from_hex(0xF5F5F5));
             
             if let Some(renderer) = &mut self.renderer {
-                renderer.render_with_scroll_and_viewport(canvas, &wxml_nodes, &page_data, &mut self.interaction, scroll_offset, viewport_height);
+                let content_height = renderer.render_with_scroll_and_viewport(canvas, &wxml_nodes, &page_data, &mut self.interaction, scroll_offset, viewport_height);
+                // 更新滚动范围（根据实际内容高度）
+                self.scroll.update_content_height(content_height, viewport_height);
             }
         }
         

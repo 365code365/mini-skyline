@@ -62,7 +62,7 @@ impl WxmlRenderer {
         data: &JsonValue,
         interaction: &mut InteractionManager,
     ) {
-        self.render_with_scroll_and_viewport(canvas, nodes, data, interaction, 0.0, self.screen_height)
+        self.render_with_scroll_and_viewport(canvas, nodes, data, interaction, 0.0, self.screen_height);
     }
     
     /// 渲染 WXML 节点，支持滚动偏移（用于 fixed 定位）
@@ -74,11 +74,11 @@ impl WxmlRenderer {
         interaction: &mut InteractionManager,
         scroll_offset: f32,
     ) {
-        self.render_with_scroll_and_viewport(canvas, nodes, data, interaction, scroll_offset, self.screen_height)
+        self.render_with_scroll_and_viewport(canvas, nodes, data, interaction, scroll_offset, self.screen_height);
     }
     
     /// 渲染 WXML 节点，支持滚动偏移和自定义视口高度（用于 fixed 定位）
-    /// 返回 fixed 元素的渲染信息，供后续单独渲染
+    /// 返回实际内容高度（用于更新滚动范围）
     pub fn render_with_scroll_and_viewport(
         &mut self, 
         canvas: &mut Canvas, 
@@ -87,7 +87,7 @@ impl WxmlRenderer {
         interaction: &mut InteractionManager,
         _scroll_offset: f32,
         _viewport_height: f32,
-    ) {
+    ) -> f32 {
         self.event_bindings.clear();
         interaction.clear_elements();
         
@@ -99,36 +99,6 @@ impl WxmlRenderer {
         for node in &rendered {
             if let Some(rn) = self.build_tree(&mut taffy, node) {
                 render_nodes.push(rn);
-            }
-        }
-        
-        // 收集所有 fixed 元素及其在原始树中的位置信息
-        struct FixedNodeInfo {
-            node: RenderNode,
-            parent_x: f32,
-            parent_y: f32,
-        }
-        
-        fn collect_fixed_with_pos(
-            nodes: &[RenderNode], 
-            taffy: &TaffyTree,
-            parent_x: f32,
-            parent_y: f32,
-            fixed_list: &mut Vec<FixedNodeInfo>
-        ) {
-            for node in nodes {
-                let layout = taffy.layout(node.taffy_node).unwrap();
-                let x = parent_x + layout.location.x;
-                let y = parent_y + layout.location.y;
-                
-                if node.style.is_fixed {
-                    fixed_list.push(FixedNodeInfo {
-                        node: node.clone(),
-                        parent_x: x,
-                        parent_y: y,
-                    });
-                }
-                collect_fixed_with_pos(&node.children, taffy, x, y, fixed_list);
             }
         }
         
@@ -145,22 +115,9 @@ impl WxmlRenderer {
         
         taffy.compute_layout(root, Size::MAX_CONTENT).unwrap();
         
-        // 收集 fixed 元素（在布局计算后）
-        let mut fixed_nodes = Vec::new();
-        collect_fixed_with_pos(&render_nodes, &taffy, 0.0, 0.0, &mut fixed_nodes);
-        
-        // Debug: 打印 render_nodes 数量
-        static RENDER_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-        let count = RENDER_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        if count < 3 {
-            eprintln!("[RENDER] render_nodes count: {}", render_nodes.len());
-            if let Some(rn) = render_nodes.first() {
-                eprintln!("[RENDER] first node: tag={} class={} children={}", 
-                    rn.tag, 
-                    rn.attrs.get("class").map(|s| s.as_str()).unwrap_or(""),
-                    rn.children.len());
-            }
-        }
+        // 获取实际内容高度
+        let root_layout = taffy.layout(root).unwrap();
+        let content_height = root_layout.size.height / self.scale_factor;
         
         // 渲染所有元素（fixed 元素会在 draw_with_interaction 中被跳过）
         for rn in &render_nodes {
@@ -168,6 +125,8 @@ impl WxmlRenderer {
         }
         
         // Fixed 元素不在这里渲染，而是通过 render_fixed_elements 单独渲染
+        
+        content_height
     }
     
     /// 单独渲染 fixed 元素到指定的 canvas
