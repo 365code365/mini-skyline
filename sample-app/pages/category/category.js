@@ -6,7 +6,18 @@ Page({
       { id: 1, name: '主食', count: 0 },
       { id: 2, name: '小吃', count: 0 },
       { id: 3, name: '饮品', count: 0 },
-      { id: 4, name: '甜点', count: 0 }
+      { id: 4, name: '甜点', count: 0 },
+      { id: 5, name: '套餐', count: 0 },
+      { id: 6, name: '早餐', count: 0 },
+      { id: 7, name: '夜宵', count: 0 },
+      { id: 8, name: '沙拉', count: 0 },
+      { id: 9, name: '沙拉1', count: 0 },
+      { id: 10, name: '沙拉2', count: 0 },
+      { id: 11, name: '沙拉4', count: 0 },
+      { id: 12, name: '沙拉5', count: 0 },
+      { id: 13, name: '沙拉6', count: 0 },
+      { id: 14, name: '沙拉1', count: 0 },
+      { id: 15, name: '汤品1', count: 0 }
     ],
     currentCategory: 0,
     currentCategoryName: '热销',
@@ -40,6 +51,26 @@ Page({
       4: [
         { id: 501, name: '蛋挞', desc: '酥皮蛋挞 2个', price: 10, icon: 'success', color: '#FFD700', quantity: 0 },
         { id: 502, name: '布丁', desc: '焦糖布丁', price: 8, icon: 'info', color: '#FFA500', quantity: 0 }
+      ],
+      5: [
+        { id: 601, name: '单人套餐A', desc: '炒饭+饮料', price: 25, icon: 'success', color: '#FF6B35', quantity: 0 },
+        { id: 602, name: '双人套餐', desc: '两份主食+小吃', price: 58, icon: 'info', color: '#4A90D9', quantity: 0 }
+      ],
+      6: [
+        { id: 701, name: '豆浆油条', desc: '经典早餐', price: 8, icon: 'success', color: '#FFD700', quantity: 0 },
+        { id: 702, name: '皮蛋瘦肉粥', desc: '暖胃养生', price: 12, icon: 'info', color: '#52C41A', quantity: 0 }
+      ],
+      7: [
+        { id: 801, name: '烧烤拼盘', desc: '多种烤串', price: 38, icon: 'success', color: '#FF6B35', quantity: 0 },
+        { id: 802, name: '小龙虾', desc: '麻辣鲜香', price: 68, icon: 'info', color: '#DC143C', quantity: 0 }
+      ],
+      8: [
+        { id: 901, name: '凯撒沙拉', desc: '新鲜蔬菜', price: 22, icon: 'success', color: '#32CD32', quantity: 0 },
+        { id: 902, name: '水果沙拉', desc: '时令水果', price: 18, icon: 'info', color: '#FF69B4', quantity: 0 }
+      ],
+      9: [
+        { id: 1001, name: '番茄蛋汤', desc: '家常美味', price: 10, icon: 'success', color: '#FF6347', quantity: 0 },
+        { id: 1002, name: '紫菜蛋花汤', desc: '清淡爽口', price: 8, icon: 'info', color: '#8B008B', quantity: 0 }
       ]
     },
     totalCount: 0,
@@ -66,7 +97,7 @@ Page({
       // 恢复商品数量到allProducts
       var allProducts = this.data.allProducts;
       var categories = this.data.categories;
-      
+
       for (var catId in allProducts) {
         var catCount = 0;
         for (var i = 0; i < allProducts[catId].length; i++) {
@@ -83,7 +114,7 @@ Page({
           }
         }
       }
-      
+
       this.setData({
         allProducts: allProducts,
         categories: categories,
@@ -156,7 +187,7 @@ Page({
     var allProducts = this.data.allProducts;
     var categories = this.data.categories;
     var found = false;
-    
+
     // 遍历所有分类找到商品
     for (var catId in allProducts) {
       for (var i = 0; i < allProducts[catId].length; i++) {
@@ -164,7 +195,7 @@ Page({
         if (product.id == productId) {
           product.quantity = Math.max(0, product.quantity + delta);
           found = true;
-          
+
           // 更新分类角标
           var catCount = 0;
           for (var j = 0; j < allProducts[catId].length; j++) {
@@ -180,13 +211,13 @@ Page({
       }
       if (found) break;
     }
-    
+
     this.setData({
       allProducts: allProducts,
       categories: categories,
       products: allProducts[this.data.currentCategory]
     });
-    
+
     this.updateCartInfo();
     this.saveCartToStorage();
   },
@@ -197,7 +228,7 @@ Page({
     var totalCount = 0;
     var totalPrice = 0;
     var cartItems = [];
-    
+
     for (var catId in allProducts) {
       for (var i = 0; i < allProducts[catId].length; i++) {
         var product = allProducts[catId][i];
@@ -213,7 +244,7 @@ Page({
         }
       }
     }
-    
+
     this.setData({
       totalCount: totalCount,
       totalPrice: totalPrice.toFixed(2),
@@ -237,7 +268,7 @@ Page({
   onClearCart: function() {
     var allProducts = this.data.allProducts;
     var categories = this.data.categories;
-    
+
     // 重置所有商品数量
     for (var catId in allProducts) {
       for (var i = 0; i < allProducts[catId].length; i++) {
@@ -250,7 +281,7 @@ Page({
         }
       }
     }
-    
+
     this.setData({
       allProducts: allProducts,
       categories: categories,
@@ -260,7 +291,7 @@ Page({
       cartItems: [],
       showCartPopup: false
     });
-    
+
     wx.removeStorageSync('categoryCart');
     wx.showToast({ title: '已清空', icon: 'success' });
   },

@@ -25,6 +25,13 @@ pub struct EventBinding {
     pub bounds: GeoRect,
 }
 
+pub struct CachedLayout {
+    pub render_nodes: Vec<RenderNode>,
+    pub taffy: TaffyTree,
+    pub content_height: f32,
+    pub data: JsonValue,
+}
+
 pub struct WxmlRenderer {
     stylesheet: StyleSheet,
     screen_width: f32,
@@ -32,6 +39,7 @@ pub struct WxmlRenderer {
     event_bindings: Vec<EventBinding>,
     text_renderer: Option<TextRenderer>,
     scale_factor: f32,
+    cache: Option<CachedLayout>,
 }
 
 impl WxmlRenderer {
@@ -51,7 +59,55 @@ impl WxmlRenderer {
             event_bindings: Vec::new(),
             text_renderer,
             scale_factor,
+            cache: None,
         }
+    }
+
+    fn update_layout_if_needed(
+        &mut self,
+        nodes: &[WxmlNode],
+        data: &JsonValue,
+    ) {
+        if let Some(cache) = &self.cache {
+            if cache.data == *data {
+                return; // Cache hit!
+            }
+        }
+        
+        let rendered = crate::parser::TemplateEngine::render(nodes, data);
+        let mut taffy = TaffyTree::new();
+        
+        let mut render_nodes = Vec::new();
+        
+        for node in &rendered {
+            if let Some(rn) = self.build_tree(&mut taffy, node) {
+                render_nodes.push(rn);
+            }
+        }
+        
+        // 构建正常布局树（包含所有节点，fixed 元素也参与布局计算）
+        let child_ids: Vec<NodeId> = render_nodes.iter().map(|n| n.taffy_node).collect();
+        let root = taffy.new_with_children(
+            Style {
+                size: Size { width: length(self.screen_width * self.scale_factor), height: auto() },
+                flex_direction: FlexDirection::Column,
+                ..Default::default()
+            },
+            &child_ids,
+        ).unwrap();
+        
+        taffy.compute_layout(root, Size::MAX_CONTENT).unwrap();
+        
+        // 获取实际内容高度
+        let root_layout = taffy.layout(root).unwrap();
+        let content_height = root_layout.size.height / self.scale_factor;
+        
+        self.cache = Some(CachedLayout {
+            render_nodes,
+            taffy,
+            content_height,
+            data: data.clone(),
+        });
     }
 
     /// 渲染 WXML 节点，使用交互管理器处理状态
@@ -85,48 +141,26 @@ impl WxmlRenderer {
         nodes: &[WxmlNode], 
         data: &JsonValue,
         interaction: &mut InteractionManager,
-        _scroll_offset: f32,
-        _viewport_height: f32,
+        scroll_offset: f32,
+        viewport_height: f32,
     ) -> f32 {
+        self.update_layout_if_needed(nodes, data);
+        
         self.event_bindings.clear();
         interaction.clear_elements();
         
-        let rendered = crate::parser::TemplateEngine::render(nodes, data);
-        let mut taffy = TaffyTree::new();
-        
-        let mut render_nodes = Vec::new();
-        
-        for node in &rendered {
-            if let Some(rn) = self.build_tree(&mut taffy, node) {
-                render_nodes.push(rn);
+        if let Some(cache) = self.cache.take() {
+            let content_height = cache.content_height;
+            // 渲染所有元素（fixed 元素会在 draw_with_interaction 中被跳过）
+            // 不使用滚动偏移渲染，滚动在 present_to_buffer 中处理
+            for rn in &cache.render_nodes {
+                self.draw_with_interaction(canvas, &cache.taffy, rn, 0.0, 0.0, interaction, scroll_offset, viewport_height * self.scale_factor);
             }
+            self.cache = Some(cache);
+            return content_height;
         }
         
-        // 构建正常布局树（包含所有节点，fixed 元素也参与布局计算）
-        let child_ids: Vec<NodeId> = render_nodes.iter().map(|n| n.taffy_node).collect();
-        let root = taffy.new_with_children(
-            Style {
-                size: Size { width: length(self.screen_width * self.scale_factor), height: auto() },
-                flex_direction: FlexDirection::Column,
-                ..Default::default()
-            },
-            &child_ids,
-        ).unwrap();
-        
-        taffy.compute_layout(root, Size::MAX_CONTENT).unwrap();
-        
-        // 获取实际内容高度
-        let root_layout = taffy.layout(root).unwrap();
-        let content_height = root_layout.size.height / self.scale_factor;
-        
-        // 渲染所有元素（fixed 元素会在 draw_with_interaction 中被跳过）
-        for rn in &render_nodes {
-            self.draw_with_interaction(canvas, &taffy, rn, 0.0, 0.0, interaction, 0.0);
-        }
-        
-        // Fixed 元素不在这里渲染，而是通过 render_fixed_elements 单独渲染
-        
-        content_height
+        0.0
     }
     
     /// 单独渲染 fixed 元素到指定的 canvas
@@ -137,87 +171,68 @@ impl WxmlRenderer {
         nodes: &[WxmlNode],
         data: &JsonValue,
         interaction: &mut InteractionManager,
-        viewport_height: f32,
+        _viewport_height: f32, // Ignore content viewport height, use full screen height for fixed elements
     ) {
-        let rendered = crate::parser::TemplateEngine::render(nodes, data);
-        let mut taffy = TaffyTree::new();
+        self.update_layout_if_needed(nodes, data);
         
-        let mut render_nodes = Vec::new();
-        for node in &rendered {
-            if let Some(rn) = self.build_tree(&mut taffy, node) {
-                render_nodes.push(rn);
+        if let Some(cache) = self.cache.take() {
+            // 收集 fixed 元素
+            struct FixedNodeInfo {
+                node: RenderNode,
             }
-        }
-        
-        // 收集 fixed 元素
-        struct FixedNodeInfo {
-            node: RenderNode,
-        }
-        
-        fn collect_fixed(nodes: &[RenderNode], fixed_list: &mut Vec<FixedNodeInfo>) {
-            for node in nodes {
-                if node.style.is_fixed {
-                    fixed_list.push(FixedNodeInfo { node: node.clone() });
+            
+            fn collect_fixed(nodes: &[RenderNode], fixed_list: &mut Vec<FixedNodeInfo>) {
+                for node in nodes {
+                    if node.style.is_fixed {
+                        fixed_list.push(FixedNodeInfo { node: node.clone() });
+                    }
+                    collect_fixed(&node.children, fixed_list);
                 }
-                collect_fixed(&node.children, fixed_list);
             }
-        }
-        
-        // 构建布局树
-        let child_ids: Vec<NodeId> = render_nodes.iter().map(|n| n.taffy_node).collect();
-        let root = taffy.new_with_children(
-            Style {
-                size: Size { width: length(self.screen_width * self.scale_factor), height: auto() },
-                flex_direction: FlexDirection::Column,
-                ..Default::default()
-            },
-            &child_ids,
-        ).unwrap();
-        
-        taffy.compute_layout(root, Size::MAX_CONTENT).unwrap();
-        
-        let mut fixed_nodes = Vec::new();
-        collect_fixed(&render_nodes, &mut fixed_nodes);
-        
-        // Sort by z-index
-        fixed_nodes.sort_by(|a, b| a.node.style.z_index.cmp(&b.node.style.z_index));
-        
-        if fixed_nodes.is_empty() {
-            return;
-        }
-        
-        let sf = self.scale_factor;
-        let vp_width = self.screen_width * sf;
-        let vp_height = viewport_height * sf;
-        
-        for info in &fixed_nodes {
-            let rn = &info.node;
-            let layout = taffy.layout(rn.taffy_node).unwrap();
-            let w = layout.size.width;
-            let h = layout.size.height;
             
-            // 计算 fixed 元素的位置（相对于视口）
-            let actual_w = if rn.style.fixed_left.is_some() && rn.style.fixed_right.is_some() {
-                let left = rn.style.fixed_left.unwrap_or(0.0);
-                let right = rn.style.fixed_right.unwrap_or(0.0);
-                vp_width - left - right
-            } else {
-                w
-            };
+            let mut fixed_nodes = Vec::new();
+            collect_fixed(&cache.render_nodes, &mut fixed_nodes);
             
-            let x = rn.style.fixed_left.unwrap_or(0.0);
-            let y = if let Some(bottom) = rn.style.fixed_bottom {
-                // bottom 定位：从视口底部计算
-                vp_height - bottom - h
-            } else if let Some(top) = rn.style.fixed_top {
-                // top 定位：从视口顶部计算
-                top
-            } else {
-                0.0
-            };
+            // Sort by z-index
+            fixed_nodes.sort_by(|a, b| a.node.style.z_index.cmp(&b.node.style.z_index));
             
-            // 渲染 fixed 元素
-            self.draw_fixed_element_original(&taffy, canvas, rn, x, y, actual_w, h, interaction);
+            if !fixed_nodes.is_empty() {
+                let sf = self.scale_factor;
+                let vp_width = self.screen_width * sf;
+                let vp_height = self.screen_height * sf; // Use full screen height for fixed elements
+                
+                for info in &fixed_nodes {
+                    let rn = &info.node;
+                    let layout = cache.taffy.layout(rn.taffy_node).unwrap();
+                    let w = layout.size.width;
+                    let h = layout.size.height;
+                    
+                    // 计算 fixed 元素的位置（相对于视口）
+                    let actual_w = if rn.style.fixed_left.is_some() && rn.style.fixed_right.is_some() {
+                        let left = rn.style.fixed_left.unwrap_or(0.0);
+                        let right = rn.style.fixed_right.unwrap_or(0.0);
+                        vp_width - left - right
+                    } else {
+                        w
+                    };
+                    
+                    let x = rn.style.fixed_left.unwrap_or(0.0);
+                    let y = if let Some(bottom) = rn.style.fixed_bottom {
+                        // bottom 定位：从视口底部计算
+                        vp_height - bottom - h
+                    } else if let Some(top) = rn.style.fixed_top {
+                        // top 定位：从视口顶部计算
+                        top
+                    } else {
+                        0.0
+                    };
+                    
+                    // 渲染 fixed 元素
+                    self.draw_fixed_element_original(&cache.taffy, canvas, rn, x, y, actual_w, h, interaction, vp_height);
+                }
+            }
+            
+            self.cache = Some(cache);
         }
     }
     
@@ -232,6 +247,7 @@ impl WxmlRenderer {
         fixed_w: f32,
         fixed_h: f32,
         interaction: &mut InteractionManager,
+        viewport_height: f32,
     ) {
         let sf = self.scale_factor;
         let logical_bounds = GeoRect::new(fixed_x / sf, fixed_y / sf, fixed_w / sf, fixed_h / sf);
@@ -239,6 +255,9 @@ impl WxmlRenderer {
         // 绘制 fixed 元素的背景
         self.draw_component(canvas, node, fixed_x, fixed_y, fixed_w, fixed_h, sf);
         
+        // 注册交互元素
+        self.register_interactive_element(node, node, &logical_bounds, interaction, taffy, true);
+
         // 绘制子节点 - 子节点位置相对于 fixed 元素
         if !Self::is_leaf_component(&node.tag) {
             let text_color = node.style.text_color.unwrap_or(Color::BLACK);
@@ -250,7 +269,7 @@ impl WxmlRenderer {
                 let child_w = child_layout.size.width;
                 let child_h = child_layout.size.height;
                 
-                self.draw_fixed_child_recursive(taffy, canvas, child, child_x, child_y, child_w, child_h, text_color, interaction);
+                self.draw_fixed_child_recursive(taffy, canvas, child, child_x, child_y, child_w, child_h, text_color, interaction, viewport_height);
             }
         }
         
@@ -263,9 +282,6 @@ impl WxmlRenderer {
                 bounds: logical_bounds,
             });
         }
-        
-        // 注册交互元素
-        self.register_interactive_element(node, node, &logical_bounds, interaction);
     }
     
     /// 递归绘制 fixed 元素的子节点
@@ -280,7 +296,13 @@ impl WxmlRenderer {
         h: f32,
         inherited_color: Color,
         interaction: &mut InteractionManager,
+        viewport_height: f32,
     ) {
+        // Viewport culling
+        if y > viewport_height || y + h < 0.0 {
+            return;
+        }
+
         let sf = self.scale_factor;
         let logical_bounds = GeoRect::new(x / sf, y / sf, w / sf, h / sf);
         
@@ -290,6 +312,9 @@ impl WxmlRenderer {
             node_to_draw.style.text_color = Some(text_color);
         }
         
+        // 注册交互元素
+        self.register_interactive_element(node, &node_to_draw, &logical_bounds, interaction, taffy, true);
+
         // 绘制组件 - 特殊处理 button 组件以支持按下状态
         let component_id = Self::get_component_id(node, &logical_bounds);
         match node.tag.as_str() {
@@ -307,14 +332,30 @@ impl WxmlRenderer {
         
         // 递归绘制子节点
         if !Self::is_leaf_component(&node.tag) {
+            let is_scroll_view = node.tag == "scroll-view";
+            let mut child_offset_y = 0.0;
+            
+            if is_scroll_view {
+                canvas.save();
+                canvas.clip_rect(GeoRect::new(x, y, w, h));
+                
+                if let Some(controller) = interaction.get_scroll_controller(&component_id) {
+                    child_offset_y = -controller.get_position();
+                }
+            }
+
             for child in &node.children {
                 let child_layout = taffy.layout(child.taffy_node).unwrap();
                 let child_x = x + child_layout.location.x;
-                let child_y = y + child_layout.location.y;
+                let child_y = y + child_layout.location.y + child_offset_y;
                 let child_w = child_layout.size.width;
                 let child_h = child_layout.size.height;
                 
-                self.draw_fixed_child_recursive(taffy, canvas, child, child_x, child_y, child_w, child_h, text_color, interaction);
+                self.draw_fixed_child_recursive(taffy, canvas, child, child_x, child_y, child_w, child_h, text_color, interaction, viewport_height);
+            }
+
+            if is_scroll_view {
+                canvas.restore();
             }
         }
         
@@ -327,9 +368,6 @@ impl WxmlRenderer {
                 bounds: logical_bounds,
             });
         }
-        
-        // 注册交互元素
-        self.register_interactive_element(node, &node_to_draw, &logical_bounds, interaction);
     }
     
     /// 兼容旧接口
@@ -422,7 +460,22 @@ impl WxmlRenderer {
                 
                 if !children.is_empty() {
                     let child_ids: Vec<NodeId> = children.iter().map(|c| c.taffy_node).collect();
-                    let (ts, ns) = build_base_style(node, &mut ctx);
+                    let (mut ts, ns) = build_base_style(node, &mut ctx);
+                    
+                    // 对于 scroll-view，使用 Overflow::Visible 让子节点能够正确布局
+                    // 裁剪在渲染时通过 canvas.clip_rect 处理
+                    if tag == "scroll-view" {
+                        ts.overflow.x = taffy::style::Overflow::Visible;
+                        ts.overflow.y = taffy::style::Overflow::Visible;
+                        
+                        // 为 scroll-view 的子元素设置 flex-shrink: 0，防止被压缩
+                        for child in &children {
+                            if let Ok(mut style) = ctx.taffy.style(child.taffy_node).cloned() {
+                                style.flex_shrink = 0.0;
+                                ctx.taffy.set_style(child.taffy_node, style).ok();
+                            }
+                        }
+                    }
                     
                     let new_tn = ctx.taffy.new_with_children(ts, &child_ids).unwrap();
                     
@@ -462,6 +515,7 @@ impl WxmlRenderer {
         oy: f32,
         interaction: &mut InteractionManager,
         scroll_offset: f32,
+        viewport_height: f32,
     ) {
         // 跳过 fixed 元素，它们会单独渲染
         if node.style.is_fixed {
@@ -474,6 +528,9 @@ impl WxmlRenderer {
         let y = oy + layout.location.y;
         let w = layout.size.width;
         let h = layout.size.height;
+        
+        // 不使用 viewport culling，渲染整个内容到 canvas
+        // 滚动在 present_to_buffer 中处理
         
         let logical_bounds = GeoRect::new(x / sf, y / sf, w / sf, h / sf);
         
@@ -553,6 +610,9 @@ impl WxmlRenderer {
             }
         }
         
+        // 注册交互元素
+        self.register_interactive_element(node, &node_to_draw, &logical_bounds, interaction, taffy, false);
+
         // 绘制组件 - 特殊处理 input 和 button 组件
         match node.tag.as_str() {
             "input" | "textarea" => {
@@ -584,9 +644,25 @@ impl WxmlRenderer {
         
         // 绘制子节点
         if !Self::is_leaf_component(&node.tag) {
+            let is_scroll_view = node.tag == "scroll-view";
+            let mut child_offset_y = 0.0;
+            
+            if is_scroll_view {
+                canvas.save();
+                canvas.clip_rect(GeoRect::new(x, y, w, h));
+                
+                if let Some(controller) = interaction.get_scroll_controller(&component_id) {
+                    child_offset_y = -controller.get_position();
+                }
+            }
+
             let text_color = node.style.text_color.unwrap_or(Color::BLACK);
             for child in &node.children { 
-                self.draw_child_with_interaction(canvas, taffy, child, x, y, text_color, interaction, scroll_offset); 
+                self.draw_child_with_interaction(canvas, taffy, child, x, y + child_offset_y, text_color, interaction, scroll_offset, viewport_height); 
+            }
+
+            if is_scroll_view {
+                canvas.restore();
             }
         }
 
@@ -599,9 +675,6 @@ impl WxmlRenderer {
                 bounds: logical_bounds 
             });
         }
-        
-        // 注册交互元素
-        self.register_interactive_element(node, &node_to_draw, &logical_bounds, interaction);
     }
     
     fn draw_child_with_interaction(
@@ -614,6 +687,7 @@ impl WxmlRenderer {
         inherited_color: Color,
         interaction: &mut InteractionManager,
         scroll_offset: f32,
+        viewport_height: f32,
     ) {
         // 跳过 fixed 元素，它们会单独渲染
         if node.style.is_fixed {
@@ -626,6 +700,9 @@ impl WxmlRenderer {
         let y = oy + layout.location.y;
         let w = layout.size.width;
         let h = layout.size.height;
+
+        // 不使用 viewport culling，渲染整个内容到 canvas
+        // 滚动在 present_to_buffer 中处理
         
         let logical_bounds = GeoRect::new(x / sf, y / sf, w / sf, h / sf);
 
@@ -707,6 +784,9 @@ impl WxmlRenderer {
             }
         }
 
+        // 注册交互元素（包括 scroll-view）
+        self.register_interactive_element(node, &node_to_draw, &logical_bounds, interaction, taffy, false);
+
         // 绘制组件 - 特殊处理 input 和 button 组件
         match node.tag.as_str() {
             "input" | "textarea" => {
@@ -737,8 +817,24 @@ impl WxmlRenderer {
         }
         
         if !Self::is_leaf_component(&node.tag) {
+            let is_scroll_view = node.tag == "scroll-view";
+            let mut child_offset_y = 0.0;
+            
+            if is_scroll_view {
+                canvas.save();
+                canvas.clip_rect(GeoRect::new(x, y, w, h));
+                
+                if let Some(controller) = interaction.get_scroll_controller(&component_id) {
+                    child_offset_y = -controller.get_position();
+                }
+            }
+
             for child in &node.children { 
-                self.draw_child_with_interaction(canvas, taffy, child, x, y, text_color, interaction, scroll_offset); 
+                self.draw_child_with_interaction(canvas, taffy, child, x, y + child_offset_y, text_color, interaction, scroll_offset, viewport_height); 
+            }
+
+            if is_scroll_view {
+                canvas.restore();
             }
         }
 
@@ -750,8 +846,6 @@ impl WxmlRenderer {
                 bounds: logical_bounds 
             });
         }
-        
-        self.register_interactive_element(node, &node_to_draw, &logical_bounds, interaction);
     }
     
     fn draw_component(&self, canvas: &mut Canvas, node: &RenderNode, x: f32, y: f32, w: f32, h: f32, sf: f32) {
@@ -776,15 +870,47 @@ impl WxmlRenderer {
         original_node: &RenderNode, 
         drawn_node: &RenderNode,
         bounds: &GeoRect, 
-        interaction: &mut InteractionManager
+        interaction: &mut InteractionManager,
+        taffy: &TaffyTree,
+        is_in_fixed_container: bool
     ) {
         let disabled = original_node.attrs.get("disabled")
             .map(|s| s == "true" || s == "{{true}}")
             .unwrap_or(false);
         
         let id = Self::get_component_id(original_node, bounds);
+        let is_fixed = is_in_fixed_container || original_node.style.is_fixed;
         
         match original_node.tag.as_str() {
+            "scroll-view" => {
+                let mut content_height = 0.0;
+                // 计算内容高度：所有子节点的底部最大值
+                for child in original_node.children.iter() {
+                    if let Ok(layout) = taffy.layout(child.taffy_node) {
+                        let bottom = layout.location.y + layout.size.height;
+                        if bottom > content_height {
+                            content_height = bottom;
+                        }
+                    }
+                }
+                
+                // 转换为逻辑像素
+                let logical_content_height = content_height / self.scale_factor;
+                
+                interaction.register_element(InteractiveElement {
+                    interaction_type: InteractionType::ScrollArea,
+                    id,
+                    bounds: *bounds,
+                    checked: false,
+                    value: String::new(),
+                    disabled,
+                    min: 0.0,
+                    max: 0.0,
+                    content_height: logical_content_height,
+                    viewport_height: bounds.height,
+                    is_fixed,
+                });
+            }
             "checkbox" => {
                 interaction.register_element(InteractiveElement {
                     interaction_type: InteractionType::Checkbox,
@@ -795,6 +921,9 @@ impl WxmlRenderer {
                     disabled,
                     min: 0.0,
                     max: 1.0,
+                    content_height: 0.0,
+                    viewport_height: 0.0,
+                    is_fixed,
                 });
             }
             "radio" => {
@@ -807,6 +936,9 @@ impl WxmlRenderer {
                     disabled,
                     min: 0.0,
                     max: 1.0,
+                    content_height: 0.0,
+                    viewport_height: 0.0,
+                    is_fixed,
                 });
             }
             "switch" => {
@@ -819,6 +951,9 @@ impl WxmlRenderer {
                     disabled,
                     min: 0.0,
                     max: 1.0,
+                    content_height: 0.0,
+                    viewport_height: 0.0,
+                    is_fixed,
                 });
             }
             "slider" => {
@@ -833,6 +968,9 @@ impl WxmlRenderer {
                     disabled,
                     min,
                     max,
+                    content_height: 0.0,
+                    viewport_height: 0.0,
+                    is_fixed,
                 });
             }
             "input" | "textarea" => {
@@ -852,6 +990,9 @@ impl WxmlRenderer {
                     disabled,
                     min: 0.0,
                     max: 0.0,
+                    content_height: 0.0,
+                    viewport_height: 0.0,
+                    is_fixed,
                 });
             }
             "button" => {
@@ -864,9 +1005,31 @@ impl WxmlRenderer {
                     disabled,
                     min: 0.0,
                     max: 0.0,
+                    content_height: 0.0,
+                    viewport_height: 0.0,
+                    is_fixed,
                 });
             }
-            _ => {}
+            _ => {
+                // Check if the node has any click handlers (bindtap, catchtap)
+                let has_tap_handler = original_node.events.iter().any(|(et, _, _)| et == "bindtap" || et == "catchtap");
+                
+                if has_tap_handler {
+                    interaction.register_element(InteractiveElement {
+                        interaction_type: InteractionType::View,
+                        id,
+                        bounds: *bounds,
+                        checked: false,
+                        value: String::new(),
+                        disabled,
+                        min: 0.0,
+                        max: 0.0,
+                        content_height: 0.0,
+                        viewport_height: 0.0,
+                        is_fixed,
+                    });
+                }
+            }
         }
     }
 

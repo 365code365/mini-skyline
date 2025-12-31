@@ -10,14 +10,14 @@
   <!-- 主体内容：左侧分类 + 右侧商品 -->
   <view class="main-content">
     <!-- 左侧分类导航 -->
-    <view class="category-nav">
+    <scroll-view class="category-nav" scroll-y="true">
       <view wx:for="{{categories}}" wx:key="id"
             class="category-item {{currentCategory == item.id ? 'active' : ''}}"
             bindtap="onSelectCategory" data-id="{{item.id}}">
         <text>{{item.name}}</text>
         <text wx:if="{{item.count > 0}}" class="category-badge">{{item.count}}</text>
       </view>
-    </view>
+    </scroll-view>
 
     <!-- 右侧商品列表 -->
     <view class="product-list">
@@ -49,8 +49,8 @@
     </view>
   </view>
 
-  <!-- 底部购物车栏 -->
-  <view class="cart-bar" style="position: fixed; bottom: 0; left: 0; right: 0;">
+  <!-- 底部购物车栏 - 在 tabbar 上方 -->
+  <view class="cart-bar" style="position: fixed; bottom: 56px; left: 0; right: 0;">
     <view class="cart-left" bindtap="onShowCart">
       <view class="cart-icon-wrap">
         <icon type="success" size="28" color="#fff"></icon>
@@ -67,15 +67,15 @@
   </view>
 
   <!-- 购物车弹窗 -->
-  <view wx:if="{{showCartPopup}}" class="cart-popup-mask" style="bottom: 100rpx;" bindtap="onHideCart"></view>
-  <view wx:if="{{showCartPopup}}" class="cart-popup" style="position: fixed; bottom: 100rpx; left: 0; right: 0;">
+  <view wx:if="{{showCartPopup}}" class="cart-popup-mask" style="bottom: 156px;" bindtap="onHideCart"></view>
+  <view wx:if="{{showCartPopup}}" class="cart-popup" style="position: fixed; bottom: 156px; left: 0; right: 0;">
     <view class="cart-popup-header">
       <text class="cart-popup-title">已选商品</text>
       <view class="cart-clear" bindtap="onClearCart">
         <text>清空</text>
       </view>
     </view>
-    <view class="cart-popup-list">
+    <scroll-view class="cart-popup-list" scroll-y="true">
       <view wx:for="{{cartItems}}" wx:key="id" class="cart-popup-item">
         <text class="cart-item-name">{{item.name}}</text>
         <text class="cart-item-price">¥{{item.price}}</text>
@@ -89,6 +89,6 @@
           </view>
         </view>
       </view>
-    </view>
+    </scroll-view>
   </view>
 </view>

@@ -128,5 +128,5 @@
 }
 
 .bottom-space {
-  height: 180rpx;
+  height: 0;
 }

@@ -39,7 +39,7 @@ pub fn render_native_tabbar(
 ) {
     let sf = scale_factor as f32;
     let width = LOGICAL_WIDTH as f32 * sf;
-    let height = TABBAR_HEIGHT as f32 * sf;
+    let _height = TABBAR_HEIGHT as f32 * sf;
     
     // 背景色
     let bg_color = parse_color(&tab_bar.background_color).unwrap_or(Color::WHITE);

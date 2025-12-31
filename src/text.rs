@@ -1,8 +1,10 @@
 //! 文本渲染模块 - 支持系统字体、Emoji 和高清渲染
 
 use crate::{Canvas, Color, Paint};
-use fontdue::{Font, FontSettings};
+use fontdue::{Font, FontSettings, Metrics};
 use std::path::Path;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 /// 文本渲染器 - 支持多字体回退（中文 + Emoji）
 pub struct TextRenderer {
@@ -10,6 +12,9 @@ pub struct TextRenderer {
     main_font: Font,
     /// Emoji 字体
     emoji_font: Option<Font>,
+    /// 简单的字形缓存 (char, size_u32) -> (Metrics, Bitmap)
+    /// 使用 Mutex 实现内部可变性，因为 draw 方法是 &self
+    cache: Arc<Mutex<HashMap<(char, u32), (Metrics, Vec<u8>)>>>,
 }
 
 impl TextRenderer {
@@ -24,6 +29,7 @@ impl TextRenderer {
         Ok(Self { 
             main_font: font,
             emoji_font: None,
+            cache: Arc::new(Mutex::new(HashMap::new())),
         })
     }
     
@@ -121,16 +127,37 @@ impl TextRenderer {
     /// 渲染文本到画布（带字间距）
     pub fn draw_text_with_spacing(&self, canvas: &mut Canvas, text: &str, x: f32, y: f32, size: f32, letter_spacing: f32, paint: &Paint) {
         let mut cursor_x = x;
-
+        let size_key = (size * 10.0) as u32; // 将 size 转换为整数 key，保留1位小数精度
+        
+        // 批量获取锁，避免循环中频繁锁竞争
+        // 注意：这里为了简化，我们会在需要时获取锁。更好的做法可能是先收集所有需要的 glyph，然后一次性 rasterize。
+        // 但考虑到 font.rasterize 是耗时操作，不应该在锁内做。
+        
         for ch in text.chars() {
-            // 选择字体
-            let font = if Self::is_emoji(ch) {
-                self.emoji_font.as_ref().unwrap_or(&self.main_font)
-            } else {
-                &self.main_font
+            // 先尝试从缓存获取（快速路径）
+            let cached_data = {
+                let cache = self.cache.lock().unwrap();
+                cache.get(&(ch, size_key)).cloned()
             };
             
-            let (metrics, bitmap) = font.rasterize(ch, size);
+            let (metrics, bitmap) = if let Some(data) = cached_data {
+                data
+            } else {
+                // 缓存未命中，执行光栅化
+                // 选择字体
+                let font = if Self::is_emoji(ch) {
+                    self.emoji_font.as_ref().unwrap_or(&self.main_font)
+                } else {
+                    &self.main_font
+                };
+                
+                let (metrics, bitmap) = font.rasterize(ch, size);
+                
+                // 存入缓存
+                let mut cache = self.cache.lock().unwrap();
+                cache.insert((ch, size_key), (metrics.clone(), bitmap.clone()));
+                (metrics, bitmap)
+            };
             
             if metrics.width == 0 || metrics.height == 0 {
                 cursor_x += metrics.advance_width + letter_spacing;
@@ -149,14 +176,14 @@ impl TextRenderer {
                         let py = (glyph_y + gy as f32).round() as i32;
 
                         if px >= 0 && py >= 0 && px < canvas.width() as i32 && py < canvas.height() as i32 {
-                            let gamma_coverage = coverage.powf(0.8);
-                            let alpha = (paint.color.a as f32 * gamma_coverage) as u8;
+                            // 优化：移除 gamma 校正，直接使用 linear alpha
+                            // let gamma_coverage = coverage.powf(0.8);
+                            let alpha = (paint.color.a as f32 * coverage) as u8;
                             
                             if alpha > 0 {
                                 let color = Color::new(paint.color.r, paint.color.g, paint.color.b, alpha);
-                                let dst = canvas.get_pixel(px as u32, py as u32);
-                                let blended = color.blend(&dst);
-                                canvas.set_pixel_direct(px, py, blended);
+                                
+                                canvas.set_pixel(px, py, color);
                             }
                         }
                     }

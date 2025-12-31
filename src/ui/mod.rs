@@ -8,6 +8,7 @@ mod image;
 mod scroll_view;
 mod layout;
 pub mod interaction;
+pub mod scroll_controller;
 
 pub use component::{Component, ComponentId, ComponentTree, Style};
 pub use view::View;
@@ -17,3 +18,4 @@ pub use image::Image;
 pub use scroll_view::ScrollView;
 pub use layout::{Layout, FlexDirection, FlexAlign};
 pub use interaction::{InteractionManager, InteractiveElement, InteractionType, InteractionResult, KeyInput, ComponentState, calculate_cursor_position};
+pub use scroll_controller::ScrollController;

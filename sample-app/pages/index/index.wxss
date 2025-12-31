@@ -1,6 +1,5 @@
 .page {
   background-color: #F5F5F5;
-  padding-bottom: 120rpx;
 }
 
 /* 搜索栏 */
@@ -221,5 +220,5 @@
 }
 
 .bottom-space {
-  height: 180rpx;
+  height: 0;
 }

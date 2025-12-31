@@ -2,12 +2,21 @@
 
 use crate::{Color, Paint, PaintStyle, Path, Point, Rect};
 
+/// 画布状态
+#[derive(Clone)]
+struct CanvasState {
+    clip_rect: Option<Rect>,
+    translation: (f32, f32),
+}
+
 /// 画布 - 主要渲染接口
 pub struct Canvas {
     width: u32,
     height: u32,
     pixels: Vec<Color>,
     clip_rect: Option<Rect>,
+    translation: (f32, f32),
+    state_stack: Vec<CanvasState>,
 }
 
 impl Canvas {
@@ -17,11 +26,40 @@ impl Canvas {
             height,
             pixels: vec![Color::TRANSPARENT; (width * height) as usize],
             clip_rect: None,
+            translation: (0.0, 0.0),
+            state_stack: Vec::new(),
         }
+    }
+
+    /// 保存当前状态（裁剪区域和变换）
+    pub fn save(&mut self) {
+        self.state_stack.push(CanvasState {
+            clip_rect: self.clip_rect,
+            translation: self.translation,
+        });
+    }
+
+    /// 恢复上一次保存的状态
+    pub fn restore(&mut self) {
+        if let Some(state) = self.state_stack.pop() {
+            self.clip_rect = state.clip_rect;
+            self.translation = state.translation;
+        }
+    }
+
+    /// 平移坐标系
+    pub fn translate(&mut self, dx: f32, dy: f32) {
+        self.translation.0 += dx;
+        self.translation.1 += dy;
     }
 
     pub fn width(&self) -> u32 { self.width }
     pub fn height(&self) -> u32 { self.height }
+    
+    /// 获取像素数据引用
+    pub fn pixels(&self) -> &[Color] {
+        &self.pixels
+    }
 
     /// 清空画布
     pub fn clear(&mut self, color: Color) {
@@ -30,7 +68,22 @@ impl Canvas {
 
     /// 设置裁剪区域
     pub fn clip_rect(&mut self, rect: Rect) {
-        self.clip_rect = Some(rect);
+        // Intersect with existing clip rect if any
+        if let Some(current) = self.clip_rect {
+            let x = current.x.max(rect.x);
+            let y = current.y.max(rect.y);
+            let right = current.right().min(rect.right());
+            let bottom = current.bottom().min(rect.bottom());
+            
+            if right > x && bottom > y {
+                self.clip_rect = Some(Rect::new(x, y, right - x, bottom - y));
+            } else {
+                // No intersection, empty rect
+                self.clip_rect = Some(Rect::new(0.0, 0.0, 0.0, 0.0));
+            }
+        } else {
+            self.clip_rect = Some(rect);
+        }
     }
 
     /// 重置裁剪区域
@@ -39,6 +92,7 @@ impl Canvas {
     }
 
     /// 获取像素
+    #[inline]
     pub fn get_pixel(&self, x: u32, y: u32) -> Color {
         if x < self.width && y < self.height {
             self.pixels[(y * self.width + x) as usize]
@@ -48,7 +102,8 @@ impl Canvas {
     }
 
     /// 设置像素（带 alpha 混合）
-    fn set_pixel(&mut self, x: i32, y: i32, color: Color) {
+    #[inline]
+    pub fn set_pixel(&mut self, x: i32, y: i32, color: Color) {
         if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {
             return;
         }
@@ -89,10 +144,13 @@ impl Canvas {
     }
 
     fn fill_rect(&mut self, rect: &Rect, color: &Color) {
-        let x0 = rect.x.max(0.0) as i32;
-        let y0 = rect.y.max(0.0) as i32;
-        let x1 = rect.right().min(self.width as f32) as i32;
-        let y1 = rect.bottom().min(self.height as f32) as i32;
+        let tx = self.translation.0;
+        let ty = self.translation.1;
+        
+        let x0 = (rect.x + tx).max(0.0) as i32;
+        let y0 = (rect.y + ty).max(0.0) as i32;
+        let x1 = (rect.right() + tx).min(self.width as f32) as i32;
+        let y1 = (rect.bottom() + ty).min(self.height as f32) as i32;
 
         for y in y0..y1 {
             for x in x0..x1 {
@@ -126,6 +184,9 @@ impl Canvas {
     }
 
     fn fill_circle(&mut self, cx: f32, cy: f32, radius: f32, paint: &Paint) {
+        let cx = cx + self.translation.0;
+        let cy = cy + self.translation.1;
+
         let r2 = radius * radius;
         let x0 = (cx - radius - 1.0).max(0.0) as i32;
         let y0 = (cy - radius - 1.0).max(0.0) as i32;
@@ -152,6 +213,9 @@ impl Canvas {
     }
 
     fn stroke_circle(&mut self, cx: f32, cy: f32, radius: f32, paint: &Paint) {
+        let cx = cx + self.translation.0;
+        let cy = cy + self.translation.1;
+
         let inner = radius - paint.stroke_width / 2.0;
         let outer = radius + paint.stroke_width / 2.0;
 
@@ -183,6 +247,11 @@ impl Canvas {
 
     /// 绘制线段
     pub fn draw_line(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, paint: &Paint) {
+        let x0 = x0 + self.translation.0;
+        let y0 = y0 + self.translation.1;
+        let x1 = x1 + self.translation.0;
+        let y1 = y1 + self.translation.1;
+
         if paint.anti_alias {
             self.draw_line_aa(x0, y0, x1, y1, paint);
         } else {
@@ -256,7 +325,19 @@ impl Canvas {
 
     /// 绘制路径
     pub fn draw_path(&mut self, path: &Path, paint: &Paint) {
-        let contours = path.flatten(1.0);
+        let mut contours = path.flatten(1.0);
+
+        // Apply translation
+        let tx = self.translation.0;
+        let ty = self.translation.1;
+        if tx != 0.0 || ty != 0.0 {
+            for contour in &mut contours {
+                for p in contour {
+                    p.x += tx;
+                    p.y += ty;
+                }
+            }
+        }
 
         match paint.style {
             PaintStyle::Fill => self.fill_path(&contours, paint),
@@ -471,6 +552,10 @@ impl Canvas {
             return;
         }
 
+        // Apply translation
+        let x = x + self.translation.0;
+        let y = y + self.translation.1;
+
         // 计算缩放和偏移
         let (scale_x, scale_y, offset_x, offset_y) = match mode {
             "aspectFit" => {
@@ -504,8 +589,8 @@ impl Canvas {
 
         // 圆角裁剪预计算
         let has_radius = radius > 0.0;
-        let cx = x + w / 2.0;
-        let cy = y + h / 2.0;
+        let _cx = x + w / 2.0;
+        let _cy = y + h / 2.0;
 
         for dest_y in dest_y0..dest_y1 {
             for dest_x in dest_x0..dest_x1 {

@@ -1,6 +1,5 @@
 .page {
   background-color: #F5F5F5;
-  padding-bottom: 200rpx;
 }
 
 /* 商品图片 */
@@ -236,5 +235,5 @@
 }
 
 .bottom-space {
-  height: 200rpx;
+  height: 120rpx;
 }

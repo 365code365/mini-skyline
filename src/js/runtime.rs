@@ -53,7 +53,7 @@ impl JsRuntime {
             let func_clone = func.clone();
             
             // 创建一个简单的 JS 函数
-            let js_func = Function::new(ctx.clone(), move |ctx: Ctx, args: Vec<Value>| -> JsResult<String> {
+            let js_func = Function::new(ctx.clone(), move |_ctx: Ctx, args: Vec<Value>| -> JsResult<String> {
                 let string_args: Vec<String> = args
                     .iter()
                     .map(|v| value_to_string(v))

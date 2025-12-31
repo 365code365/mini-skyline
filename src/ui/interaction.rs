@@ -3,6 +3,7 @@
 
 use crate::Rect;
 use std::collections::HashMap;
+use super::scroll_controller::ScrollController;
 
 /// 组件交互状态
 #[derive(Clone, Debug, Default)]
@@ -122,6 +123,8 @@ pub enum InteractionType {
     Slider,
     Input,
     Button,
+    ScrollArea,
+    View,
 }
 
 /// 可交互组件信息
@@ -135,6 +138,10 @@ pub struct InteractiveElement {
     pub disabled: bool,
     pub min: f32,
     pub max: f32,
+    // Scroll area specific
+    pub content_height: f32,
+    pub viewport_height: f32,
+    pub is_fixed: bool,
 }
 
 /// 按下的按钮
@@ -160,6 +167,10 @@ pub struct InteractionManager {
     pub focused_input: Option<FocusedInput>,
     /// 拖动中的滑块
     pub dragging_slider: Option<DraggingSlider>,
+    /// 滚动控制器集合
+    pub scroll_controllers: HashMap<String, ScrollController>,
+    /// 正在拖动的滚动区域 ID
+    pub dragging_scroll_area: Option<String>,
     /// 按下的按钮
     pub pressed_button: Option<PressedButton>,
     /// 点击动画
@@ -177,6 +188,8 @@ impl InteractionManager {
             pressed_button: None,
             click_animations: Vec::new(),
             elements: Vec::new(),
+            scroll_controllers: HashMap::new(),
+            dragging_scroll_area: None,
         }
     }
     
@@ -187,12 +200,30 @@ impl InteractionManager {
     
     /// 注册交互元素
     pub fn register_element(&mut self, element: InteractiveElement) {
+        if element.interaction_type == InteractionType::ScrollArea {
+            if !self.scroll_controllers.contains_key(&element.id) {
+                let controller = ScrollController::new(element.content_height, element.viewport_height);
+                self.scroll_controllers.insert(element.id.clone(), controller);
+            } else if let Some(controller) = self.scroll_controllers.get_mut(&element.id) {
+                controller.update_content_height(element.content_height, element.viewport_height);
+            }
+        }
         self.elements.push(element);
     }
     
     /// 获取组件状态
     pub fn get_state(&self, id: &str) -> Option<&ComponentState> {
         self.states.get(id)
+    }
+
+    /// 获取滚动控制器
+    pub fn get_scroll_controller(&self, id: &str) -> Option<&ScrollController> {
+        self.scroll_controllers.get(id)
+    }
+
+    /// 获取可变滚动控制器
+    pub fn get_scroll_controller_mut(&mut self, id: &str) -> Option<&mut ScrollController> {
+        self.scroll_controllers.get_mut(id)
     }
     
     /// 设置组件状态
@@ -324,6 +355,8 @@ impl InteractionManager {
                     bounds: element.bounds,
                 })
             }
+            InteractionType::View => None,
+            InteractionType::ScrollArea => None,
         }
     }
     
@@ -598,6 +631,8 @@ impl InteractionManager {
         self.states.clear();
         self.focused_input = None;
         self.dragging_slider = None;
+        self.scroll_controllers.clear();
+        self.dragging_scroll_area = None;
         self.pressed_button = None;
         self.click_animations.clear();
         self.elements.clear();

@@ -14,7 +14,7 @@ pub fn present_to_buffer(
     has_tabbar: bool,
     tabbar_physical_height: u32,
 ) {
-    let canvas_data = canvas.to_rgba();
+    let pixels = canvas.pixels();
     let canvas_width = canvas.width();
     let canvas_height = canvas.height();
     
@@ -23,63 +23,58 @@ pub fn present_to_buffer(
     // 背景色 (0xF5F5F5)
     let bg_color: u32 = 0xF5F5F5;
     
-    // 渲染内容区域
-    for y in 0..content_area_height {
-        let src_y_raw = y as i32 + scroll_offset;
+    let copy_width = buffer_width.min(canvas_width) as usize;
+    
+    // 渲染主内容
+    for dst_y in 0..content_area_height {
+        let src_y = dst_y as i32 + scroll_offset;
+        let dst_row_start = (dst_y * buffer_width) as usize;
         
-        // 如果源 y 超出 canvas 范围，填充背景色
-        if src_y_raw < 0 || src_y_raw >= canvas_height as i32 {
-            for x in 0..buffer_width {
-                let dst_idx = (y * buffer_width + x) as usize;
-                if dst_idx < buffer.len() {
-                    buffer[dst_idx] = bg_color;
-                }
+        if src_y >= 0 && src_y < canvas_height as i32 {
+            let src_row_start = (src_y as u32 * canvas_width) as usize;
+            
+            // 批量转换像素
+            for x in 0..copy_width {
+                let color = &pixels[src_row_start + x];
+                buffer[dst_row_start + x] = ((color.r as u32) << 16) | ((color.g as u32) << 8) | (color.b as u32);
+            }
+            
+            // 填充剩余宽度
+            if buffer_width as usize > copy_width {
+                buffer[dst_row_start + copy_width..dst_row_start + buffer_width as usize].fill(bg_color);
             }
         } else {
-            let src_y = src_y_raw as u32;
-            for x in 0..buffer_width.min(canvas_width) {
-                let src_idx = ((src_y * canvas_width + x) * 4) as usize;
-                let dst_idx = (y * buffer_width + x) as usize;
-                if src_idx + 3 < canvas_data.len() && dst_idx < buffer.len() {
-                    let r = canvas_data[src_idx] as u32;
-                    let g = canvas_data[src_idx + 1] as u32;
-                    let b = canvas_data[src_idx + 2] as u32;
-                    buffer[dst_idx] = (r << 16) | (g << 8) | b;
-                }
-            }
+            buffer[dst_row_start..dst_row_start + buffer_width as usize].fill(bg_color);
         }
     }
     
-    // 渲染 fixed 元素（覆盖在内容区域上）
+    // 渲染 fixed 元素
     if let Some(fixed_canvas) = fixed_canvas {
-        let fixed_data = fixed_canvas.to_rgba();
-        let fixed_width = fixed_canvas.width();
+        let fixed_pixels = fixed_canvas.pixels();
+        let fixed_width = fixed_canvas.width() as usize;
         let fixed_height = fixed_canvas.height();
-        for y in 0..content_area_height.min(fixed_height) {
-            for x in 0..buffer_width.min(fixed_width) {
-                let src_idx = ((y * fixed_width + x) * 4) as usize;
-                let dst_idx = (y * buffer_width + x) as usize;
-                if src_idx + 3 < fixed_data.len() && dst_idx < buffer.len() {
-                    let a = fixed_data[src_idx + 3];
-                    if a > 0 {
-                        let r = fixed_data[src_idx] as u32;
-                        let g = fixed_data[src_idx + 1] as u32;
-                        let b = fixed_data[src_idx + 2] as u32;
-                        if a == 255 {
-                            buffer[dst_idx] = (r << 16) | (g << 8) | b;
-                        } else {
-                            // Alpha 混合
-                            let dst = buffer[dst_idx];
-                            let dst_r = (dst >> 16) & 0xFF;
-                            let dst_g = (dst >> 8) & 0xFF;
-                            let dst_b = dst & 0xFF;
-                            let alpha = a as u32;
-                            let inv_alpha = 255 - alpha;
-                            let new_r = (r * alpha + dst_r * inv_alpha) / 255;
-                            let new_g = (g * alpha + dst_g * inv_alpha) / 255;
-                            let new_b = (b * alpha + dst_b * inv_alpha) / 255;
-                            buffer[dst_idx] = (new_r << 16) | (new_g << 8) | new_b;
-                        }
+        
+        let draw_h = content_area_height.min(fixed_height);
+        let draw_w = (buffer_width as usize).min(fixed_width);
+        
+        for y in 0..draw_h {
+            let src_row = (y as usize) * fixed_width;
+            let dst_row = (y * buffer_width) as usize;
+            
+            for x in 0..draw_w {
+                let color = &fixed_pixels[src_row + x];
+                if color.a > 0 {
+                    let dst_idx = dst_row + x;
+                    if color.a == 255 {
+                        buffer[dst_idx] = ((color.r as u32) << 16) | ((color.g as u32) << 8) | (color.b as u32);
+                    } else {
+                        let dst = buffer[dst_idx];
+                        let alpha = color.a as u32;
+                        let inv_alpha = 255 - alpha;
+                        let r = (color.r as u32 * alpha + ((dst >> 16) & 0xFF) * inv_alpha) / 255;
+                        let g = (color.g as u32 * alpha + ((dst >> 8) & 0xFF) * inv_alpha) / 255;
+                        let b = (color.b as u32 * alpha + (dst & 0xFF) * inv_alpha) / 255;
+                        buffer[dst_idx] = (r << 16) | (g << 8) | b;
                     }
                 }
             }
@@ -89,20 +84,21 @@ pub fn present_to_buffer(
     // 渲染 TabBar
     if has_tabbar {
         if let Some(tabbar_canvas) = tabbar_canvas {
-            let tabbar_data = tabbar_canvas.to_rgba();
-            let tabbar_width = tabbar_canvas.width();
+            let tabbar_pixels = tabbar_canvas.pixels();
+            let tabbar_width = tabbar_canvas.width() as usize;
             let tabbar_height = tabbar_canvas.height();
-            for y in 0..tabbar_physical_height.min(tabbar_height) {
+            
+            let draw_h = tabbar_physical_height.min(tabbar_height);
+            let draw_w = (buffer_width as usize).min(tabbar_width);
+            
+            for y in 0..draw_h {
                 let dst_y = content_area_height + y;
-                for x in 0..buffer_width.min(tabbar_width) {
-                    let src_idx = ((y * tabbar_width + x) * 4) as usize;
-                    let dst_idx = (dst_y * buffer_width + x) as usize;
-                    if src_idx + 3 < tabbar_data.len() && dst_idx < buffer.len() {
-                        let r = tabbar_data[src_idx] as u32;
-                        let g = tabbar_data[src_idx + 1] as u32;
-                        let b = tabbar_data[src_idx + 2] as u32;
-                        buffer[dst_idx] = (r << 16) | (g << 8) | b;
-                    }
+                let src_row = (y as usize) * tabbar_width;
+                let dst_row = (dst_y * buffer_width) as usize;
+                
+                for x in 0..draw_w {
+                    let color = &tabbar_pixels[src_row + x];
+                    buffer[dst_row + x] = ((color.r as u32) << 16) | ((color.g as u32) << 8) | (color.b as u32);
                 }
             }
         }

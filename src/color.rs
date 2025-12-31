@@ -39,21 +39,46 @@ impl Color {
         }
     }
 
-    /// Alpha 混合
+    /// Alpha 混合 (使用整数运算优化)
+    #[inline]
     pub fn blend(&self, dst: &Color) -> Color {
-        let src_a = self.a as f32 / 255.0;
-        let dst_a = dst.a as f32 / 255.0;
-        let out_a = src_a + dst_a * (1.0 - src_a);
-
-        if out_a == 0.0 {
-            return Color::new(0, 0, 0, 0);
+        // 如果源完全透明，返回目标色
+        if self.a == 0 { return *dst; }
+        
+        // 针对目标是完全不透明的常见情况（如背景）进行优化
+        if dst.a == 255 {
+            if self.a == 255 { return *self; }
+            
+            let alpha = self.a as u32;
+            let inv_alpha = 255 - alpha;
+            
+            return Color {
+                r: ((self.r as u32 * alpha + dst.r as u32 * inv_alpha) / 255) as u8,
+                g: ((self.g as u32 * alpha + dst.g as u32 * inv_alpha) / 255) as u8,
+                b: ((self.b as u32 * alpha + dst.b as u32 * inv_alpha) / 255) as u8,
+                a: 255,
+            };
         }
 
+        // 通用混合模式 (支持半透明目标)
+        let src_a = self.a as u32;
+        let dst_a = dst.a as u32;
+        let inv_src_a = 255 - src_a;
+        
+        // out_a = src_a + dst_a * (1 - src_a)
+        let out_a = src_a + (dst_a * inv_src_a) / 255;
+        
+        if out_a == 0 { return Color::TRANSPARENT; }
+        
+        // 结果颜色计算需要除以 out_a
+        // r = (src.r * src_a + dst.r * dst_a * inv_src_a) / out_a
+        let dst_factor = (dst_a * inv_src_a) / 255;
+        
         Color {
-            r: ((self.r as f32 * src_a + dst.r as f32 * dst_a * (1.0 - src_a)) / out_a) as u8,
-            g: ((self.g as f32 * src_a + dst.g as f32 * dst_a * (1.0 - src_a)) / out_a) as u8,
-            b: ((self.b as f32 * src_a + dst.b as f32 * dst_a * (1.0 - src_a)) / out_a) as u8,
-            a: (out_a * 255.0) as u8,
+            r: ((self.r as u32 * src_a + dst.r as u32 * dst_factor) / out_a) as u8,
+            g: ((self.g as u32 * src_a + dst.g as u32 * dst_factor) / out_a) as u8,
+            b: ((self.b as u32 * src_a + dst.b as u32 * dst_factor) / out_a) as u8,
+            a: out_a as u8,
         }
     }
 

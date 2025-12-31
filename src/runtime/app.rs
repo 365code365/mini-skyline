@@ -105,7 +105,7 @@ impl MiniApp {
     /// 更新一帧
     pub fn update(&mut self) -> Result<(), String> {
         let now = Instant::now();
-        let dt = now.duration_since(self.last_frame);
+        let _dt = now.duration_since(self.last_frame);
         self.last_frame = now;
         
         // 处理定时器

@@ -149,7 +149,7 @@ impl Component for Image {
                         let idx = (sy as u32 * self.image_width + sx as u32) as usize;
                         if idx < pixels.len() {
                             let color = pixels[idx];
-                            canvas.set_pixel_direct(
+                            canvas.set_pixel(
                                 bounds.x as i32 + dx,
                                 bounds.y as i32 + dy,
                                 color

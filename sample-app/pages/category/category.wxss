@@ -1,11 +1,16 @@
 .page {
   background-color: #F5F5F5;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 /* 搜索栏 */
 .search-bar {
   background-color: #FF6B35;
   padding: 20rpx 24rpx;
+  flex-shrink: 0;
 }
 
 .search-input {
@@ -27,18 +32,22 @@
 .main-content {
   display: flex;
   flex-direction: row;
+  flex: 1;
+  overflow: hidden;
 }
 
-/* 左侧分类导航 - 固定宽度 */
+/* 左侧分类导航 - 固定宽度，需要固定高度才能滚动 */
 .category-nav {
   width: 180rpx;
   min-width: 180rpx;
   max-width: 180rpx;
+  height: 450px;
   background-color: #F5F5F5;
 }
 
 .category-item {
-  padding: 28rpx 16rpx;
+  height: 120px;
+  padding: 0 16rpx;
   display: flex;
   flex-direction: row;
   align-items: center;
@@ -73,7 +82,7 @@
 .product-list {
   flex: 1;
   background-color: #fff;
-  padding-bottom: 200rpx;
+  overflow-y: scroll; /* Allow vertical scrolling */
 }
 
 .category-title {

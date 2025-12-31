@@ -20,6 +20,7 @@ use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowAttributes, WindowId};
+use mini_render::ui::ScrollController;
 
 struct MiniAppWindow {
     window: Option<Arc<Window>>,
@@ -299,10 +300,11 @@ impl MiniAppWindow {
     
     fn update_renderers(&mut self) {
         if let Some(page) = self.page_stack.last() {
+            // screen_height 应该是视口高度，用于 fixed 元素定位
             self.renderer = Some(WxmlRenderer::new_with_scale(
                 page.stylesheet.clone(),
                 LOGICAL_WIDTH as f32,
-                CONTENT_HEIGHT as f32,
+                LOGICAL_HEIGHT as f32,  // 使用视口高度，不是内容高度
                 self.scale_factor as f32,
             ));
             
@@ -345,6 +347,23 @@ impl MiniAppWindow {
         
         if content_height > 0.0 {
             self.scroll.update_content_height(content_height, viewport_height);
+            
+            // canvas 高度 = 内容高度
+            let required_height = (content_height * self.scale_factor as f32).ceil() as u32;
+            let current_height = self.canvas.as_ref().map(|c| c.height()).unwrap_or(0);
+            
+            if current_height != required_height && required_height > 0 {
+                let physical_width = (LOGICAL_WIDTH as f64 * self.scale_factor) as u32;
+                self.canvas = Some(Canvas::new(physical_width, required_height));
+                
+                // 重新渲染到新 canvas
+                if let Some(canvas) = &mut self.canvas {
+                    canvas.clear(Color::from_hex(0xF5F5F5));
+                    if let Some(renderer) = &mut self.renderer {
+                        renderer.render_with_scroll_and_viewport(canvas, &wxml_nodes, &page_data, &mut self.interaction, scroll_offset, viewport_height);
+                    }
+                }
+            }
         }
         
         if let Some(fixed_canvas) = &mut self.fixed_canvas {
@@ -544,7 +563,20 @@ impl MiniAppWindow {
         let now = Instant::now();
         let dt = now.duration_since(self.last_frame).as_secs_f32();
         self.last_frame = now;
+        
+        let mut scroll_changed = false;
         if self.scroll.update(dt) {
+            scroll_changed = true;
+        }
+        
+        for controller in self.interaction.scroll_controllers.values_mut() {
+            if controller.update(dt) {
+                scroll_changed = true;
+            }
+        }
+        
+        // 滚动动画时只需要 present，不需要重新渲染
+        if scroll_changed {
             if let Some(window) = &self.window { window.request_redraw(); }
         }
     }
@@ -659,10 +691,10 @@ impl ApplicationHandler for MiniAppWindow {
                                 }
                                 self.needs_redraw = true;
                             }
-                            keyboard::DefaultKeyAction::ScrollUp => self.scroll.handle_wheel(8.0),
-                            keyboard::DefaultKeyAction::ScrollDown => self.scroll.handle_wheel(-8.0),
-                            keyboard::DefaultKeyAction::PageUp => self.scroll.handle_wheel(30.0),
-                            keyboard::DefaultKeyAction::PageDown => self.scroll.handle_wheel(-30.0),
+                            keyboard::DefaultKeyAction::ScrollUp => self.scroll.handle_scroll(8.0, false),
+                            keyboard::DefaultKeyAction::ScrollDown => self.scroll.handle_scroll(-8.0, false),
+                            keyboard::DefaultKeyAction::PageUp => self.scroll.handle_scroll(30.0, false),
+                            keyboard::DefaultKeyAction::PageDown => self.scroll.handle_scroll(-30.0, false),
                         }
                         if let Some(w) = &self.window { w.request_redraw(); }
                     }
@@ -700,6 +732,7 @@ impl ApplicationHandler for MiniAppWindow {
                 let x = position.x as f32 / self.scale_factor as f32;
                 let y = position.y as f32 / self.scale_factor as f32;
                 self.mouse_pos = (x, y);
+                let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
                 
                 if self.interaction.is_dragging_slider() {
                     if let Some(result) = self.interaction.handle_mouse_move(x, y + self.scroll.get_position()) {
@@ -715,18 +748,64 @@ impl ApplicationHandler for MiniAppWindow {
                     }
                     self.needs_redraw = true;
                     if let Some(w) = &self.window { w.request_redraw(); }
+                } else if let Some(id) = self.interaction.dragging_scroll_area.clone() {
+                    if let Some(controller) = self.interaction.get_scroll_controller_mut(&id) {
+                        controller.update_drag(y, timestamp);
+                        if let Some(w) = &self.window { w.request_redraw(); }
+                    }
                 } else if self.scroll.is_dragging {
-                    self.scroll.update_drag(y);
+                    self.scroll.update_drag(y, timestamp);
                     if let Some(w) = &self.window { w.request_redraw(); }
                 }
             }
             
             WindowEvent::MouseWheel { delta, .. } => {
-                let delta_y = match delta {
-                    MouseScrollDelta::LineDelta(_, y) => y * 20.0,
-                    MouseScrollDelta::PixelDelta(pos) => pos.y as f32 * 0.5,
+                let (delta_y, is_precise) = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => (-y * 20.0, false),
+                    // 触控板：将物理像素转换为逻辑像素，并降低灵敏度
+                    MouseScrollDelta::PixelDelta(pos) => (-pos.y as f32 / self.scale_factor as f32 * 0.5, true),
                 };
-                self.scroll.handle_wheel(delta_y);
+                
+                let x = self.mouse_pos.0;
+                let y = self.mouse_pos.1;
+                let actual_y = y + self.scroll.get_position();
+                
+                // 检查是否在 ScrollArea 内
+                let mut handled = false;
+                
+                // 首先检查 fixed 元素（使用视口坐标）
+                let mut scroll_area_id = if let Some(element) = self.interaction.hit_test(x, y) {
+                    if element.is_fixed && element.interaction_type == mini_render::ui::interaction::InteractionType::ScrollArea {
+                        Some(element.id.clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                
+                // 如果没有找到 fixed 的滚动区域，再检查普通元素（使用滚动后的坐标）
+                if scroll_area_id.is_none() {
+                    if let Some(element) = self.interaction.hit_test(x, actual_y) {
+                        if !element.is_fixed && element.interaction_type == mini_render::ui::interaction::InteractionType::ScrollArea {
+                            scroll_area_id = Some(element.id.clone());
+                        }
+                    }
+                }
+                
+                if let Some(id) = scroll_area_id {
+                    if let Some(controller) = self.interaction.get_scroll_controller_mut(&id) {
+                        controller.handle_scroll(delta_y, is_precise);
+                        handled = true;
+                    }
+                }
+                
+                if !handled {
+                    self.scroll.handle_scroll(delta_y, is_precise);
+                }
+                
+                // 滚动时不需要重新渲染，只需要 present
+                // needs_redraw 保持不变，只请求重绘
                 if let Some(w) = &self.window { w.request_redraw(); }
             }
             
@@ -735,6 +814,7 @@ impl ApplicationHandler for MiniAppWindow {
                     ElementState::Pressed => {
                         self.click_start_pos = self.mouse_pos;
                         self.click_start_time = Instant::now();
+                        let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
                         
                         let x = self.mouse_pos.0;
                         let y = self.mouse_pos.1;
@@ -769,6 +849,13 @@ impl ApplicationHandler for MiniAppWindow {
                                         if let Some(w) = &self.window { w.request_redraw(); }
                                     }
                                 }
+                                mini_render::ui::interaction::InteractionType::ScrollArea => {
+                                    if let Some(controller) = self.interaction.get_scroll_controller_mut(&element.id) {
+                                        controller.begin_drag(y, timestamp);
+                                        self.interaction.dragging_scroll_area = Some(element.id.clone());
+                                        return;
+                                    }
+                                }
                                 _ => {}
                             }
                         }
@@ -801,16 +888,31 @@ impl ApplicationHandler for MiniAppWindow {
                                         if let Some(w) = &self.window { w.request_redraw(); }
                                     }
                                 }
+                                mini_render::ui::interaction::InteractionType::ScrollArea => {
+                                    if let Some(controller) = self.interaction.get_scroll_controller_mut(&element.id) {
+                                        controller.begin_drag(y, timestamp);
+                                        self.interaction.dragging_scroll_area = Some(element.id.clone());
+                                        return;
+                                    }
+                                }
                                 _ => {}
                             }
                         }
                         
                         if !self.interaction.is_dragging_slider() {
-                            self.scroll.begin_drag(self.mouse_pos.1);
+                            self.scroll.begin_drag(self.mouse_pos.1, timestamp);
                         }
                     }
                     ElementState::Released => {
                         self.interaction.clear_button_pressed();
+                        
+                        if let Some(id) = self.interaction.dragging_scroll_area.take() {
+                            if let Some(controller) = self.interaction.get_scroll_controller_mut(&id) {
+                                controller.end_drag();
+                                self.needs_redraw = true;
+                                if let Some(w) = &self.window { w.request_redraw(); }
+                            }
+                        }
                         
                         if let Some(result) = self.interaction.handle_mouse_release() {
                             handle_interaction_result(
@@ -855,7 +957,8 @@ impl ApplicationHandler for MiniAppWindow {
                 }
                 self.present();
                 
-                if self.scroll.is_animating() || self.scroll.is_dragging || has_video {
+                let any_scroll_active = self.interaction.scroll_controllers.values().any(|c| c.is_animating() || c.is_dragging);
+                if self.scroll.is_animating() || self.scroll.is_dragging || has_video || any_scroll_active {
                     if let Some(window) = &self.window { window.request_redraw(); }
                 }
             }

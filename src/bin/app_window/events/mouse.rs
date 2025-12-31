@@ -3,46 +3,49 @@
 use mini_render::ui::interaction::{InteractionManager, InteractionResult, InteractionType};
 use mini_render::renderer::WxmlRenderer;
 use mini_render::runtime::MiniApp;
-use super::super::scroll::ScrollController;
-use super::super::navigation::NavigationRequest;
+use mini_render::ui::scroll_controller::ScrollController;
 use super::super::tabbar::TABBAR_HEIGHT;
 
 pub const LOGICAL_HEIGHT: u32 = 667;
 
 /// 鼠标按下事件处理
 pub fn handle_mouse_pressed(
-    mouse_pos: (f32, f32),
+    x: f32,
+    y: f32,
     scroll: &mut ScrollController,
     interaction: &mut InteractionManager,
+    timestamp: u64,
 ) -> bool {
-    let x = mouse_pos.0;
-    let y = mouse_pos.1;
+    let mouse_pos = (x, y);
+    // 考虑滚动偏移
     let actual_y = y + scroll.get_position();
     
-    // 首先检查 fixed 元素（使用视口坐标）
+    // 首先检查固定元素（使用原始坐标）
     if let Some(element) = interaction.hit_test(x, y) {
         let element = element.clone();
-        
-        match element.interaction_type {
-            InteractionType::Slider => {
-                if !element.disabled {
-                    if let Some(result) = interaction.handle_click(x, y) {
-                        return true; // 需要处理结果
+        if element.is_fixed {
+            match element.interaction_type {
+                InteractionType::Button => {
+                    if !element.disabled {
+                        interaction.set_button_pressed(element.id.clone(), element.bounds);
+                        return true;
                     }
                 }
-                return true; // 阻止滚动
-            }
-            InteractionType::Button => {
-                if !element.disabled {
-                    interaction.set_button_pressed(element.id.clone(), element.bounds);
-                    return true;
+                InteractionType::Switch | InteractionType::Checkbox | InteractionType::Radio => {
+                    if !element.disabled {
+                        if let Some(_result) = interaction.handle_click(x, y) { // Fixed elements use screen coords
+                            return true;
+                        }
+                    }
                 }
+                _ => {}
             }
-            _ => {}
+            return true; // Fixed element consumed click
         }
     }
+
     // 然后检查普通元素（使用滚动后的坐标）
-    else if let Some(element) = interaction.hit_test(x, actual_y) {
+    if let Some(element) = interaction.hit_test(x, actual_y) {
         let element = element.clone();
         
         match element.interaction_type {
@@ -60,13 +63,22 @@ pub fn handle_mouse_pressed(
                     return true;
                 }
             }
+            InteractionType::ScrollArea => {
+                if !element.is_fixed {
+                    if let Some(controller) = interaction.get_scroll_controller_mut(&element.id) {
+                        controller.begin_drag(y, timestamp);
+                        interaction.dragging_scroll_area = Some(element.id.clone());
+                        return true;
+                    }
+                }
+            }
             _ => {}
         }
     }
     
-    // 如果不是在拖动滑块，才开始滚动拖动
-    if !interaction.is_dragging_slider() {
-        scroll.begin_drag(mouse_pos.1);
+    // 如果不是在拖动滑块或 ScrollArea，才开始滚动拖动
+    if !interaction.is_dragging_slider() && interaction.dragging_scroll_area.is_none() {
+        scroll.begin_drag(mouse_pos.1, timestamp);
     }
     
     false
@@ -83,6 +95,15 @@ pub fn handle_mouse_released(
     // 结束滑块拖动
     if let Some(_result) = interaction.handle_mouse_release() {
         // 结果会在外部处理
+    }
+    
+    // 结束 ScrollArea 拖动
+    if let Some(id) = &interaction.dragging_scroll_area.clone() {
+        if let Some(controller) = interaction.get_scroll_controller_mut(id) {
+            controller.end_drag();
+        }
+        interaction.dragging_scroll_area = None;
+        return true; // 触发重绘
     }
     
     scroll.end_drag()
@@ -146,8 +167,21 @@ pub fn handle_content_click(
         return None;
     }
     
+    // 检查是否点击在 scroll-view 内部，如果是，需要调整坐标
+    let mut adjusted_y = actual_y;
+    if let Some(element) = interaction.hit_test(x, actual_y) {
+        if element.interaction_type == InteractionType::ScrollArea {
+            // 点击在 scroll-view 上，需要加上 scroll-view 的滚动偏移
+            if let Some(controller) = interaction.get_scroll_controller(&element.id) {
+                let scroll_offset = controller.get_position();
+                // 计算相对于 scroll-view 内部的坐标
+                adjusted_y = actual_y + scroll_offset;
+            }
+        }
+    }
+    
     // 使用交互管理器处理点击
-    if let Some(result) = interaction.handle_click(x, actual_y) {
+    if let Some(result) = interaction.handle_click(x, adjusted_y) {
         // 处理输入框光标位置
         if let InteractionResult::Focus { click_x, .. } = &result {
             if let Some(focused) = &interaction.focused_input {
@@ -181,7 +215,7 @@ pub fn handle_content_click(
         
         if should_call_js {
             if let Some(renderer) = renderer {
-                if let Some(binding) = renderer.hit_test(x, actual_y) {
+                if let Some(binding) = renderer.hit_test(x, adjusted_y) {
                     println!("👆 {} -> {}", binding.event_type, binding.handler);
                     let data_json = serde_json::to_string(&binding.data).unwrap_or("{}".to_string());
                     let call_code = format!("__callPageMethod('{}', {})", binding.handler, data_json);
@@ -200,7 +234,7 @@ pub fn handle_content_click(
     
     // 检查其他事件绑定
     if let Some(renderer) = renderer {
-        if let Some(binding) = renderer.hit_test(x, actual_y) {
+        if let Some(binding) = renderer.hit_test(x, adjusted_y) {
             println!("👆 {} -> {}", binding.event_type, binding.handler);
             let data_json = serde_json::to_string(&binding.data).unwrap_or("{}".to_string());
             let call_code = format!("__callPageMethod('{}', {})", binding.handler, data_json);
