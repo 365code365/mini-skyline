@@ -1,10 +1,18 @@
 //! switch 组件 - 开关选择器
 //! 
+//! 支持完整的 CSS 样式，同时保留微信默认样式作为 fallback
 //! 属性：
 //! - checked: 是否选中
 //! - disabled: 是否禁用
 //! - type: switch(默认) / checkbox
 //! - color: 选中时的颜色
+//! 
+//! CSS 支持：
+//! - width/height: 自定义尺寸
+//! - background-color: 自定义轨道背景色
+//! - border-radius: 自定义圆角
+//! - opacity: 透明度
+//! - box-shadow: 阴影
 
 use super::base::*;
 use crate::parser::wxml::WxmlNode;
@@ -26,27 +34,45 @@ impl SwitchComponent {
         let switch_color = node.get_attr("color").and_then(|c| parse_color_str(c))
             .unwrap_or(Color::from_hex(0x04BE02));
         
-        // 微信官方 switch 尺寸
-        let (width, height) = if switch_type == "checkbox" {
+        // 检查 CSS 是否定义了尺寸和颜色
+        let has_custom_size = !matches!(ts.size.width, Dimension::Auto) || 
+                              !matches!(ts.size.height, Dimension::Auto);
+        let has_custom_bg = ns.background_color.is_some();
+        let has_custom_radius = ns.border_radius > 0.0;
+        
+        // 微信官方 switch 尺寸 - 只在没有自定义尺寸时使用
+        let (default_width, default_height) = if switch_type == "checkbox" {
             (24.0, 24.0)
         } else {
             (51.0, 31.0)
         };
         
-        ts.size = Size { width: length(width * sf), height: length(height * sf) };
+        if !has_custom_size {
+            ts.size = Size { width: length(default_width * sf), height: length(default_height * sf) };
+        }
         
-        // 设置颜色
-        let bg_color = if checked {
-            if disabled { Color::from_hex(0xA9DCA8) } else { switch_color }
-        } else {
-            if disabled { Color::from_hex(0xF0F0F0) } else { Color::from_hex(0xDFDFDF) }
-        };
+        // 只在 CSS 没有定义时使用微信默认颜色
+        if !has_custom_bg {
+            let bg_color = if checked {
+                if disabled { Color::from_hex(0xA9DCA8) } else { switch_color }
+            } else {
+                if disabled { Color::from_hex(0xF0F0F0) } else { Color::from_hex(0xDFDFDF) }
+            };
+            ns.background_color = Some(bg_color);
+        }
         
-        ns.background_color = Some(bg_color);
-        ns.border_radius = if switch_type == "checkbox" { 4.0 * sf } else { height * sf / 2.0 };
+        // 只在 CSS 没有定义时使用默认圆角
+        if !has_custom_radius {
+            ns.border_radius = if switch_type == "checkbox" { 
+                4.0 * sf 
+            } else { 
+                default_height * sf / 2.0 
+            };
+        }
+        
         ns.custom_data = if checked { 1.0 } else { 0.0 };
-        ns.border_width = width;
-        ns.font_size = height;
+        ns.border_width = default_width;
+        ns.font_size = default_height;
         
         let text = switch_type.to_string();
         
@@ -68,6 +94,11 @@ impl SwitchComponent {
         let checked = style.custom_data > 0.5;
         let switch_type = node.text.as_str();
         
+        // 绘制盒子阴影
+        if let Some(shadow) = &style.box_shadow {
+            draw_box_shadow(canvas, shadow, x, y, w, h, style.border_radius);
+        }
+        
         if switch_type == "checkbox" {
             Self::draw_checkbox(canvas, style, checked, x, y, w, h, sf);
         } else {
@@ -76,11 +107,32 @@ impl SwitchComponent {
     }
     
     fn draw_switch(canvas: &mut Canvas, style: &NodeStyle, checked: bool, x: f32, y: f32, w: f32, h: f32, sf: f32) {
+        // 应用透明度
+        let apply_opacity = |color: Color| -> Color {
+            if style.opacity < 1.0 {
+                Color::new(color.r, color.g, color.b, (color.a as f32 * style.opacity) as u8)
+            } else {
+                color
+            }
+        };
+        
+        // 获取圆角值（支持四个角独立设置）
+        let radius_tl = style.border_radius_tl.unwrap_or(style.border_radius);
+        let radius_tr = style.border_radius_tr.unwrap_or(style.border_radius);
+        let radius_br = style.border_radius_br.unwrap_or(style.border_radius);
+        let radius_bl = style.border_radius_bl.unwrap_or(style.border_radius);
+        let uniform_radius = radius_tl == radius_tr && radius_tr == radius_br && radius_br == radius_bl;
+        let radius = if uniform_radius { radius_tl } else { h / 2.0 };
+        
         // 绘制背景轨道 - 使用抗锯齿
         if let Some(bg) = style.background_color {
-            let paint = Paint::new().with_color(bg).with_style(PaintStyle::Fill).with_anti_alias(true);
+            let paint = Paint::new().with_color(apply_opacity(bg)).with_style(PaintStyle::Fill).with_anti_alias(true);
             let mut path = Path::new();
-            path.add_round_rect(x, y, w, h, h / 2.0);
+            if uniform_radius {
+                path.add_round_rect(x, y, w, h, radius);
+            } else {
+                path.add_round_rect_varying(x, y, w, h, radius_tl, radius_tr, radius_br, radius_bl);
+            }
             canvas.draw_path(&path, &paint);
         }
         
@@ -106,11 +158,32 @@ impl SwitchComponent {
     }
     
     fn draw_checkbox(canvas: &mut Canvas, style: &NodeStyle, checked: bool, x: f32, y: f32, w: f32, h: f32, _sf: f32) {
+        // 应用透明度
+        let apply_opacity = |color: Color| -> Color {
+            if style.opacity < 1.0 {
+                Color::new(color.r, color.g, color.b, (color.a as f32 * style.opacity) as u8)
+            } else {
+                color
+            }
+        };
+        
+        // 获取圆角值
+        let radius_tl = style.border_radius_tl.unwrap_or(style.border_radius);
+        let radius_tr = style.border_radius_tr.unwrap_or(style.border_radius);
+        let radius_br = style.border_radius_br.unwrap_or(style.border_radius);
+        let radius_bl = style.border_radius_bl.unwrap_or(style.border_radius);
+        let uniform_radius = radius_tl == radius_tr && radius_tr == radius_br && radius_br == radius_bl;
+        let radius = radius_tl;
+        
         // 绘制背景 - 使用抗锯齿
         if let Some(bg) = style.background_color {
-            let paint = Paint::new().with_color(bg).with_style(PaintStyle::Fill).with_anti_alias(true);
+            let paint = Paint::new().with_color(apply_opacity(bg)).with_style(PaintStyle::Fill).with_anti_alias(true);
             let mut path = Path::new();
-            path.add_round_rect(x, y, w, h, style.border_radius);
+            if uniform_radius {
+                path.add_round_rect(x, y, w, h, radius);
+            } else {
+                path.add_round_rect_varying(x, y, w, h, radius_tl, radius_tr, radius_br, radius_bl);
+            }
             canvas.draw_path(&path, &paint);
         }
         
@@ -122,19 +195,35 @@ impl SwitchComponent {
                 .with_style(PaintStyle::Fill)
                 .with_anti_alias(true);
             let mut border = Path::new();
-            border.add_round_rect(x, y, w, h, style.border_radius);
+            if uniform_radius {
+                border.add_round_rect(x, y, w, h, radius);
+            } else {
+                border.add_round_rect_varying(x, y, w, h, radius_tl, radius_tr, radius_br, radius_bl);
+            }
             canvas.draw_path(&border, &border_paint);
             
             // 内部白色
             let inner_paint = Paint::new().with_color(Color::WHITE).with_style(PaintStyle::Fill).with_anti_alias(true);
             let mut inner = Path::new();
-            inner.add_round_rect(
-                x + border_width, 
-                y + border_width, 
-                w - border_width * 2.0, 
-                h - border_width * 2.0, 
-                (style.border_radius - border_width).max(0.0)
-            );
+            let inner_radius = |r: f32| (r - border_width).max(0.0);
+            if uniform_radius {
+                inner.add_round_rect(
+                    x + border_width, 
+                    y + border_width, 
+                    w - border_width * 2.0, 
+                    h - border_width * 2.0, 
+                    inner_radius(radius)
+                );
+            } else {
+                inner.add_round_rect_varying(
+                    x + border_width, 
+                    y + border_width, 
+                    w - border_width * 2.0, 
+                    h - border_width * 2.0, 
+                    inner_radius(radius_tl), inner_radius(radius_tr),
+                    inner_radius(radius_br), inner_radius(radius_bl)
+                );
+            }
             canvas.draw_path(&inner, &inner_paint);
         }
         

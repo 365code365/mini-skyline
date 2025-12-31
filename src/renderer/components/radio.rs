@@ -1,10 +1,18 @@
 //! radio 组件 - 单选框
 //! 
+//! 支持完整的 CSS 样式，同时保留微信默认样式作为 fallback
 //! 属性：
 //! - value: radio 标识
 //! - checked: 是否选中
 //! - disabled: 是否禁用
 //! - color: 选中时的颜色
+//! 
+//! CSS 支持：
+//! - width/height: 自定义尺寸
+//! - background-color: 自定义背景色
+//! - border-color: 自定义边框色
+//! - opacity: 透明度
+//! - box-shadow: 阴影
 
 use super::base::*;
 use crate::parser::wxml::WxmlNode;
@@ -25,30 +33,61 @@ impl RadioComponent {
         let radio_color = node.get_attr("color").and_then(|c| parse_color_str(c))
             .unwrap_or(Color::from_hex(0x09BB07));
         
-        // 微信官方 radio 尺寸 - 增加点击区域
+        // 检查 CSS 是否定义了尺寸和颜色
+        let has_custom_size = !matches!(ts.size.width, Dimension::Auto) || 
+                              !matches!(ts.size.height, Dimension::Auto);
+        let has_custom_bg = ns.background_color.is_some();
+        let has_custom_border = ns.border_color.is_some();
+        
+        // 微信官方 radio 尺寸 - 只在没有自定义尺寸时使用
         let visual_size = 24.0 * sf;
         let touch_size = 40.0 * sf;
-        ts.size = Size { width: length(touch_size), height: length(touch_size) };
-        ts.justify_content = Some(JustifyContent::Center);
-        ts.align_items = Some(AlignItems::Center);
         
-        // 设置颜色
-        let bg_color = if checked {
-            if disabled { Color::from_hex(0xA9DCA8) } else { radio_color }
+        if !has_custom_size {
+            ts.size = Size { width: length(touch_size), height: length(touch_size) };
+        }
+        
+        // 默认居中对齐
+        if ts.justify_content.is_none() {
+            ts.justify_content = Some(JustifyContent::Center);
+        }
+        if ts.align_items.is_none() {
+            ts.align_items = Some(AlignItems::Center);
+        }
+        
+        // 只在 CSS 没有定义时使用微信默认颜色
+        if !has_custom_bg {
+            let bg_color = if checked {
+                if disabled { Color::from_hex(0xA9DCA8) } else { radio_color }
+            } else {
+                Color::WHITE
+            };
+            ns.background_color = Some(bg_color);
+        }
+        
+        if !has_custom_border {
+            let border_color = if checked {
+                if disabled { Color::from_hex(0xA9DCA8) } else { radio_color }
+            } else {
+                if disabled { Color::from_hex(0xE1E1E1) } else { Color::from_hex(0xD1D1D1) }
+            };
+            ns.border_color = Some(border_color);
+        }
+        
+        // 存储 visual_size 用于绘制
+        ns.border_width = if has_custom_size {
+            match (&ts.size.width, &ts.size.height) {
+                (Dimension::Length(w), Dimension::Length(h)) => w.min(*h) * 0.6,
+                (Dimension::Length(w), _) => *w * 0.6,
+                (_, Dimension::Length(h)) => *h * 0.6,
+                _ => visual_size,
+            }
         } else {
-            Color::WHITE
+            visual_size
         };
         
-        let border_color = if checked {
-            if disabled { Color::from_hex(0xA9DCA8) } else { radio_color }
-        } else {
-            if disabled { Color::from_hex(0xE1E1E1) } else { Color::from_hex(0xD1D1D1) }
-        };
-        
-        ns.background_color = Some(bg_color);
-        ns.border_color = Some(border_color);
-        ns.border_width = visual_size;
-        ns.border_radius = visual_size / 2.0;
+        // radio 始终是圆形
+        ns.border_radius = ns.border_width / 2.0;
         ns.custom_data = if checked { 1.0 } else { 0.0 };
         
         let tn = ctx.taffy.new_leaf(ts).unwrap();
@@ -68,15 +107,29 @@ impl RadioComponent {
         let style = &node.style;
         let checked = style.custom_data > 0.5;
         
+        // 绘制盒子阴影
+        if let Some(shadow) = &style.box_shadow {
+            draw_box_shadow(canvas, shadow, x, y, w, h, style.border_radius);
+        }
+        
         // 计算居中的实际绘制区域
         let visual_size = style.border_width;
         let cx = x + w / 2.0;
         let cy = y + h / 2.0;
         let r = visual_size / 2.0;
         
+        // 应用透明度
+        let apply_opacity = |color: Color| -> Color {
+            if style.opacity < 1.0 {
+                Color::new(color.r, color.g, color.b, (color.a as f32 * style.opacity) as u8)
+            } else {
+                color
+            }
+        };
+        
         // 绘制背景圆 - 使用抗锯齿
         if let Some(bg) = style.background_color {
-            let paint = Paint::new().with_color(bg).with_style(PaintStyle::Fill).with_anti_alias(true);
+            let paint = Paint::new().with_color(apply_opacity(bg)).with_style(PaintStyle::Fill).with_anti_alias(true);
             canvas.draw_circle(cx, cy, r, &paint);
         }
         
@@ -85,7 +138,7 @@ impl RadioComponent {
             if let Some(bc) = style.border_color {
                 // 使用填充方式绘制圆环边框
                 let border_width = 2.0;
-                let paint = Paint::new().with_color(bc).with_style(PaintStyle::Fill).with_anti_alias(true);
+                let paint = Paint::new().with_color(apply_opacity(bc)).with_style(PaintStyle::Fill).with_anti_alias(true);
                 canvas.draw_circle(cx, cy, r, &paint);
                 
                 // 内圆（挖空）

@@ -1,5 +1,6 @@
 //! icon 组件 - 图标
 //! 
+//! 支持完整的 CSS 样式，同时保留微信默认样式作为 fallback
 //! 微信官方图标类型：
 //! - success: 成功（绿色对勾）
 //! - success_no_circle: 成功无圆圈
@@ -10,6 +11,12 @@
 //! - download: 下载
 //! - search: 搜索
 //! - clear: 清除
+//! 
+//! CSS 支持：
+//! - width/height: 自定义尺寸（覆盖 size 属性）
+//! - color: 自定义颜色（覆盖 color 属性）
+//! - opacity: 透明度
+//! - box-shadow: 阴影
 
 use super::base::*;
 use crate::parser::wxml::WxmlNode;
@@ -29,22 +36,34 @@ impl IconComponent {
         let icon_size = node.get_attr("size").and_then(|s| s.parse::<f32>().ok()).unwrap_or(23.0);
         let icon_color = node.get_attr("color").and_then(|c| parse_color_str(c));
         
-        let size = icon_size * sf;
-        ts.size = Size { width: length(size), height: length(size) };
+        // 检查 CSS 是否定义了尺寸和颜色
+        let has_custom_size = !matches!(ts.size.width, Dimension::Auto) || 
+                              !matches!(ts.size.height, Dimension::Auto);
+        let has_custom_color = ns.text_color.is_some();
         
-        // 根据类型设置默认颜色（微信官方配色）
-        let default_color = match icon_type {
-            "success" | "success_no_circle" => Color::from_hex(0x09BB07),
-            "info" | "info_circle" => Color::from_hex(0x10AEFF),
-            "warn" => Color::from_hex(0xF76260),
-            "waiting" | "waiting_circle" => Color::from_hex(0x10AEFF),
-            "cancel" | "clear" => Color::from_hex(0xF43530),
-            "download" => Color::from_hex(0x09BB07),
-            "search" => Color::from_hex(0xB2B2B2),
-            _ => Color::from_hex(0x09BB07),
-        };
+        // 只在 CSS 没有定义尺寸时使用 size 属性
+        if !has_custom_size {
+            let size = icon_size * sf;
+            ts.size = Size { width: length(size), height: length(size) };
+        }
         
-        ns.text_color = icon_color.or(Some(default_color));
+        // 根据类型设置默认颜色（微信官方配色）- 只在没有自定义颜色时使用
+        if !has_custom_color {
+            let default_color = match icon_type {
+                "success" | "success_no_circle" => Color::from_hex(0x09BB07),
+                "info" | "info_circle" => Color::from_hex(0x10AEFF),
+                "warn" => Color::from_hex(0xF76260),
+                "waiting" | "waiting_circle" => Color::from_hex(0x10AEFF),
+                "cancel" | "clear" => Color::from_hex(0xF43530),
+                "download" => Color::from_hex(0x09BB07),
+                "search" => Color::from_hex(0xB2B2B2),
+                _ => Color::from_hex(0x09BB07),
+            };
+            
+            // 属性颜色优先于默认颜色
+            ns.text_color = icon_color.or(Some(default_color));
+        }
+        
         ns.font_size = icon_size;
         
         let tn = ctx.taffy.new_leaf(ts).unwrap();
@@ -61,7 +80,23 @@ impl IconComponent {
     }
     
     pub fn draw(node: &RenderNode, canvas: &mut Canvas, x: f32, y: f32, w: f32, h: f32, _sf: f32) {
-        let color = node.style.text_color.unwrap_or(Color::from_hex(0x09BB07));
+        let style = &node.style;
+        
+        // 绘制盒子阴影
+        if let Some(shadow) = &style.box_shadow {
+            draw_box_shadow(canvas, shadow, x, y, w, h, 0.0);
+        }
+        
+        // 应用透明度
+        let apply_opacity = |color: Color| -> Color {
+            if style.opacity < 1.0 {
+                Color::new(color.r, color.g, color.b, (color.a as f32 * style.opacity) as u8)
+            } else {
+                color
+            }
+        };
+        
+        let color = apply_opacity(style.text_color.unwrap_or(Color::from_hex(0x09BB07)));
         let icon_type = node.text.as_str();
         let cx = x + w / 2.0;
         let cy = y + h / 2.0;

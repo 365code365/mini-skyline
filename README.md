@@ -1,14 +1,22 @@
-# Mini App Engine
+# Mini Render
 
-类似微信小程序的轻量级运行时引擎，包含：
-- 🎨 2D 渲染引擎（类似 Skia）
-- ⚡ QuickJS 脚本引擎
-- 🧩 UI 组件系统
-- 📱 事件处理系统
-- 📄 WXML/WXSS 解析器
-- 🔗 C FFI 接口
+一个用 Rust 实现的轻量级微信小程序渲染引擎，支持 WXML/WXSS 解析、Flexbox 布局、组件渲染和 JavaScript 运行时。
 
-## 架构
+## ✨ 特性
+
+- 🎨 **2D 渲染引擎** - 纯 Rust 实现，支持抗锯齿、Alpha 混合
+- ⚡ **QuickJS 脚本引擎** - 完整的 JavaScript 运行时
+- 🧩 **丰富的组件** - 支持 14+ 微信小程序组件
+- 📐 **Flexbox 布局** - 基于 Taffy 的完整 Flexbox 支持
+- 📄 **WXML/WXSS 解析** - 支持模板语法和 rpx 单位
+- 🎯 **完整 CSS 支持** - 组件支持标准 CSS 样式
+- 🔗 **C FFI 接口** - 可嵌入其他语言
+
+## 📸 运行效果
+
+<img src="doc/img.png" width="375" alt="运行展示图">
+
+## 🏗️ 架构
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -23,8 +31,8 @@
 │  ┌──────────────────────────────────────────┐   │
 │  │              Native (Rust)                │   │
 │  │  ┌─────────┐  ┌─────────┐  ┌──────────┐  │   │
-│  │  │ Canvas  │  │   UI    │  │  Event   │  │   │
-│  │  │ Render  │  │ System  │  │  System  │  │   │
+│  │  │ Canvas  │  │  Taffy  │  │  Event   │  │   │
+│  │  │ Render  │  │ Layout  │  │  System  │  │   │
 │  │  └─────────┘  └─────────┘  └──────────┘  │   │
 │  │  ┌─────────┐  ┌─────────┐  ┌──────────┐  │   │
 │  │  │  WXML   │  │  WXSS   │  │ Template │  │   │
@@ -38,127 +46,257 @@
 │  └──────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────┘
 ```
-运行的展示图
 
-<img src="doc/img.png" width="400" alt="运行展示图">
+## 🧩 支持的组件
 
-## 功能
+### 基础组件
+| 组件 | 说明 | CSS 支持 |
+|------|------|----------|
+| `view` | 视图容器 | ✅ 完整 |
+| `text` | 文本 | ✅ 完整 |
+| `image` | 图片 | ✅ 完整 |
+| `icon` | 图标 | ✅ 完整 |
 
-### 渲染引擎
-- 基本图形：矩形、圆形、线段、椭圆
-- 路径绘制：贝塞尔曲线、圆角矩形
-- 抗锯齿渲染
-- Alpha 混合
-- 真实字体渲染（支持中文）
-- PNG 导出
+### 表单组件
+| 组件 | 说明 | CSS 支持 |
+|------|------|----------|
+| `button` | 按钮 | ✅ 完整 |
+| `input` | 输入框 | ✅ 完整 |
+| `checkbox` | 复选框 | ✅ 完整 |
+| `radio` | 单选框 | ✅ 完整 |
+| `switch` | 开关 | ✅ 完整 |
+| `slider` | 滑动选择器 | ✅ 完整 |
+| `progress` | 进度条 | ✅ 完整 |
 
-### WXML/WXSS 解析
-- WXML 模板解析（支持 `wx:for`、`wx:if`、`wx:else`）
-- WXSS 样式解析（支持 rpx 单位）
-- 数据绑定（`{{expression}}`）
-- 事件绑定（`bindtap`、`catchtap` 等）
-- 样式解析器（支持 flexbox 布局属性）
+### 容器组件
+| 组件 | 说明 | CSS 支持 |
+|------|------|----------|
+| `scroll-view` | 滚动视图 | ✅ 完整 |
 
-### UI 组件
-- View - 基础容器
-- Text - 文本显示
-- Button - 按钮
-- Image - 图片
-- Input - 输入框
-- ScrollView - 滚动容器
-- Layout - Flex 布局
+### 媒体组件
+| 组件 | 说明 | CSS 支持 |
+|------|------|----------|
+| `video` | 视频 | ✅ 基础 |
 
-### JS API（兼容微信小程序）
-- `App()` / `Page()` - 应用和页面定义
-- `Page.setData()` - 数据更新
-- `wx.setStorage` / `wx.getStorage` - 本地存储
-- `wx.showToast` / `wx.showModal` - UI 反馈
-- `wx.navigateTo` / `wx.navigateBack` - 页面导航
-- `wx.createCanvasContext` - Canvas 绑制
-- `setTimeout` / `setInterval` - 定时器
-- `console.log` - 控制台输出
+## 🎨 CSS 样式支持
 
-## 安装
+所有组件支持以下 CSS 属性：
+
+### 布局
+- `display`: flex, block, none, grid
+- `flex-direction`, `flex-wrap`, `flex-grow`, `flex-shrink`
+- `justify-content`, `align-items`, `align-self`, `align-content`
+- `width`, `height`, `min-width`, `max-width`, `min-height`, `max-height`
+- `padding`, `margin` (支持四个方向独立设置)
+- `position`: relative, absolute, fixed
+- `top`, `right`, `bottom`, `left`
+- `gap`, `row-gap`, `column-gap`
+
+### 外观
+- `background-color`, `color`
+- `border`, `border-width`, `border-color`
+- `border-radius` (支持四角独立设置)
+- `box-shadow`
+- `opacity`
+- `overflow`: visible, hidden, scroll, auto
+
+### 文本
+- `font-size`, `font-weight`
+- `text-align`: left, center, right, justify
+- `text-decoration`: none, underline, line-through
+- `line-height`, `letter-spacing`
+- `white-space`: normal, nowrap, pre, pre-wrap
+- `text-overflow`: clip, ellipsis
+- `vertical-align`: baseline, top, middle, bottom
+- `word-break`: normal, break-all, keep-all
+
+### 变换
+- `transform`: translate, scale, rotate, skew
+- `z-index`
+
+## 📄 WXML 模板语法
+
+```html
+<!-- 数据绑定 -->
+<view>{{message}}</view>
+
+<!-- 列表渲染 -->
+<view wx:for="{{items}}" wx:key="id">
+  <text>{{item.name}}</text>
+</view>
+
+<!-- 条件渲染 -->
+<view wx:if="{{condition}}">显示</view>
+<view wx:elif="{{other}}">其他</view>
+<view wx:else>默认</view>
+
+<!-- 事件绑定 -->
+<button bindtap="handleTap" data-id="{{id}}">点击</button>
+```
+
+## 📐 WXSS 样式
+
+```css
+/* 支持 rpx 单位 */
+.container {
+  width: 750rpx;
+  padding: 20rpx;
+}
+
+/* 支持 Flexbox */
+.flex-row {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+}
+
+/* 支持圆角和阴影 */
+.card {
+  border-radius: 16rpx;
+  box-shadow: 0 4rpx 12rpx rgba(0,0,0,0.1);
+}
+```
+
+## ⚡ JavaScript API
+
+### 应用生命周期
+```javascript
+App({
+  onLaunch() { },
+  onShow() { },
+  globalData: { }
+})
+```
+
+### 页面生命周期
+```javascript
+Page({
+  data: { message: 'Hello' },
+  onLoad(options) { },
+  onShow() { },
+  onReady() { },
+  setData(data) { }
+})
+```
+
+### 微信 API
+```javascript
+// 数据存储
+wx.setStorageSync('key', 'value')
+wx.getStorageSync('key')
+
+// UI 反馈
+wx.showToast({ title: '成功' })
+wx.showModal({ title: '提示', content: '确认?' })
+wx.showLoading({ title: '加载中' })
+
+// 页面导航
+wx.navigateTo({ url: '/pages/detail/detail' })
+wx.navigateBack()
+wx.switchTab({ url: '/pages/index/index' })
+
+// 系统信息
+wx.getSystemInfoSync()
+
+// 定时器
+setTimeout(() => {}, 1000)
+setInterval(() => {}, 1000)
+```
+
+## 🚀 快速开始
+
+### 安装依赖
 
 ```bash
 # 安装 Rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source ~/.cargo/env
+
+# 克隆项目
+git clone <repo-url>
+cd mini-render
 
 # 构建
-cd mini-render
 cargo build --release
 ```
 
-## 运行示例
+### 运行示例
 
 ```bash
-# 运行主程序
-cargo run --bin mini-app
+# 运行小程序窗口（推荐）
+cargo run --release --bin mini-app-window
 
 # 运行渲染示例
 cargo run --example demo
-
-# 运行窗口示例
-cargo run --example mini_app_window
 ```
 
-## 项目结构
+## 📁 项目结构
 
 ```
 mini-render/
 ├── src/
-│   ├── lib.rs              # 库入口
-│   ├── canvas.rs           # 画布核心
-│   ├── color.rs            # 颜色处理
-│   ├── geometry.rs         # 几何图形
-│   ├── paint.rs            # 画笔
-│   ├── path.rs             # 路径
-│   ├── text.rs             # 文本渲染
-│   ├── ffi.rs              # C FFI
-│   ├── event.rs            # 事件系统
-│   ├── ui/                 # UI 组件
-│   │   ├── component.rs    # 组件基类
-│   │   ├── view.rs         # View
-│   │   ├── button.rs       # Button
-│   │   ├── image.rs        # Image
-│   │   ├── scroll_view.rs  # ScrollView
-│   │   └── layout.rs       # Layout
-│   ├── js/                 # JS 引擎
-│   │   ├── runtime.rs      # QuickJS 运行时
-│   │   ├── api.rs          # 小程序 API
-│   │   └── bridge.rs       # JS-Native 桥接
-│   ├── parser/             # 解析器
-│   │   ├── wxml.rs         # WXML 解析器
-│   │   ├── wxss.rs         # WXSS 解析器
-│   │   └── template.rs     # 模板引擎
-│   ├── renderer/           # 渲染器
+│   ├── lib.rs                  # 库入口
+│   ├── canvas.rs               # 画布核心（绘图、抗锯齿）
+│   ├── color.rs                # 颜色处理
+│   ├── geometry.rs             # 几何图形
+│   ├── paint.rs                # 画笔样式
+│   ├── path.rs                 # 路径绘制
+│   ├── text.rs                 # 文本渲染
+│   ├── event.rs                # 事件系统
+│   ├── ffi.rs                  # C FFI 接口
+│   ├── bin/
+│   │   ├── main.rs             # CLI 入口
+│   │   └── window.rs           # 窗口应用
+│   ├── js/                     # JavaScript 引擎
+│   │   ├── runtime.rs          # QuickJS 运行时
+│   │   ├── api.rs              # 小程序 API 实现
+│   │   └── bridge.rs           # JS-Native 桥接
+│   ├── parser/                 # 解析器
+│   │   ├── wxml.rs             # WXML 解析器
+│   │   ├── wxss.rs             # WXSS 解析器
+│   │   └── template.rs         # 模板引擎
+│   ├── renderer/               # 渲染器
 │   │   ├── wxml_renderer.rs    # WXML 渲染器
-│   │   └── style_resolver.rs   # 样式解析器
-│   ├── runtime/            # 应用运行时
-│   │   ├── app.rs          # MiniApp
-│   │   └── window.rs       # 窗口管理
-│   └── bin/
-│       └── main.rs         # 主程序
-├── assets/
-│   └── NotoSansSC-Regular.ttf  # 中文字体
+│   │   └── components/         # 组件实现
+│   │       ├── base.rs         # 基础样式解析
+│   │       ├── view.rs         # View 组件
+│   │       ├── text.rs         # Text 组件
+│   │       ├── button.rs       # Button 组件
+│   │       ├── image.rs        # Image 组件
+│   │       ├── input.rs        # Input 组件
+│   │       ├── checkbox.rs     # Checkbox 组件
+│   │       ├── radio.rs        # Radio 组件
+│   │       ├── switch.rs       # Switch 组件
+│   │       ├── slider.rs       # Slider 组件
+│   │       ├── progress.rs     # Progress 组件
+│   │       ├── icon.rs         # Icon 组件
+│   │       └── video.rs        # Video 组件
+│   ├── layout/                 # 布局系统
+│   ├── ui/                     # UI 工具
+│   │   ├── scroll_controller.rs # 滚动控制
+│   │   └── scroll_cache.rs     # 滚动缓存优化
+│   └── runtime/                # 应用运行时
+├── assets/                     # 字体资源
+│   └── NotoSansSC-Regular.ttf
 ├── include/
-│   └── mini_render.h       # C 头文件
-├── examples/
-│   ├── demo.rs             # 渲染示例
-│   ├── demo.c              # C 示例
-│   └── mini_app_window.rs  # 窗口示例
-└── sample-app/             # 示例小程序
+│   └── mini_render.h           # C 头文件
+├── examples/                   # 示例代码
+│   ├── demo.rs
+│   ├── demo.c
+│   └── mini_app_window.rs
+└── sample-app/                 # 示例小程序
     ├── app.js
     ├── app.json
+    ├── custom-tab-bar/         # 自定义 TabBar
     └── pages/
-        └── index/
-            ├── index.js    # 页面逻辑
-            ├── index.wxml  # 页面模板
-            └── index.wxss  # 页面样式
+        ├── index/              # 首页
+        ├── category/           # 分类页
+        ├── cart/               # 购物车
+        ├── profile/            # 个人中心
+        ├── list/               # 列表页
+        └── detail/             # 详情页
 ```
 
-## C/C++ 集成
+## 🔧 C/C++ 集成
 
 ```c
 #include "mini_render.h"
@@ -167,16 +305,16 @@ mini-render/
 Canvas* canvas = mr_canvas_new(375, 667);
 mr_canvas_clear(canvas, 255, 255, 255, 255);
 
-// 绘制
+// 绘制图形
 mr_canvas_draw_rect(canvas, 10, 10, 100, 50, 0x4A, 0x90, 0xD9, 255, 0, 0);
 mr_canvas_draw_circle(canvas, 200, 100, 30, 0xE7, 0x4C, 0x3C, 255, 0, 0);
 
-// 保存
+// 保存为 PNG
 mr_canvas_save_png(canvas, "output.png");
 mr_canvas_free(canvas);
 ```
 
-## 编译动态库
+### 编译动态库
 
 ```bash
 cargo build --release
@@ -186,6 +324,15 @@ cargo build --release
 # Windows: target/release/mini_render.dll
 ```
 
-## License
+## 📋 依赖
+
+- [Taffy](https://github.com/DioxusLabs/taffy) - Flexbox 布局引擎
+- [QuickJS](https://bellard.org/quickjs/) - JavaScript 引擎
+- [winit](https://github.com/rust-windowing/winit) - 跨平台窗口
+- [softbuffer](https://github.com/rust-windowing/softbuffer) - 软件渲染
+- [image](https://github.com/image-rs/image) - 图片处理
+- [fontdue](https://github.com/mooman219/fontdue) - 字体渲染
+
+## 📄 License
 
 MIT

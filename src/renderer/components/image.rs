@@ -1,5 +1,6 @@
 //! image 组件 - 图片
 //! 
+//! 支持完整的 CSS 样式，同时保留微信默认样式作为 fallback
 //! 属性：
 //! - src: 图片资源地址（支持网络URL和本地路径）
 //! - mode: 图片裁剪、缩放模式
@@ -10,6 +11,15 @@
 //!   - heightFix: 缩放模式，高度不变，宽度自动变化
 //! - lazy-load: 懒加载
 //! - show-menu-by-longpress: 长按显示菜单
+//! 
+//! CSS 支持：
+//! - width/height: 自定义尺寸
+//! - background-color: 自定义占位符背景色
+//! - border: 边框样式
+//! - border-radius: 圆角（支持四角独立设置）
+//! - box-shadow: 阴影
+//! - opacity: 透明度
+//! - object-fit: 图片填充模式（可覆盖 mode 属性）
 
 use super::base::*;
 use crate::parser::wxml::WxmlNode;
@@ -132,20 +142,36 @@ impl ImageComponent {
         let src = node.get_attr("src").unwrap_or("");
         let mode = node.get_attr("mode").unwrap_or("scaleToFill");
         
-        // 默认图片大小 150x100
+        // 检查 CSS 是否定义了尺寸和样式
+        let has_custom_width = !matches!(ts.size.width, Dimension::Auto);
+        let has_custom_height = !matches!(ts.size.height, Dimension::Auto);
+        let has_custom_bg = ns.background_color.is_some();
+        let has_custom_radius = ns.border_radius > 0.0 || 
+                                ns.border_radius_tl.is_some() ||
+                                ns.border_radius_tr.is_some() ||
+                                ns.border_radius_br.is_some() ||
+                                ns.border_radius_bl.is_some();
+        
+        // 默认图片大小 150x100 - 只在 CSS 没有定义时使用
         let default_width = 150.0;
         let default_height = 100.0;
         
-        if ts.size.width == Dimension::Auto {
+        if !has_custom_width {
             ts.size.width = length(default_width * sf);
         }
-        if ts.size.height == Dimension::Auto {
+        if !has_custom_height {
             ts.size.height = length(default_height * sf);
         }
         
-        // 图片占位符背景
-        ns.background_color = Some(Color::from_hex(0xF5F5F5));
-        ns.border_radius = 4.0 * sf;
+        // 只在 CSS 没有定义时使用默认占位符背景
+        if !has_custom_bg {
+            ns.background_color = Some(Color::from_hex(0xF5F5F5));
+        }
+        
+        // 只在 CSS 没有定义时使用默认圆角
+        if !has_custom_radius {
+            ns.border_radius = 4.0 * sf;
+        }
         
         let tn = ctx.taffy.new_leaf(ts).unwrap();
         
@@ -174,23 +200,49 @@ impl ImageComponent {
         _sf: f32
     ) {
         let style = &node.style;
-        let radius = style.border_radius;
+        
+        // 获取圆角值（支持四个角独立设置）
+        let radius_tl = style.border_radius_tl.unwrap_or(style.border_radius);
+        let radius_tr = style.border_radius_tr.unwrap_or(style.border_radius);
+        let radius_br = style.border_radius_br.unwrap_or(style.border_radius);
+        let radius_bl = style.border_radius_bl.unwrap_or(style.border_radius);
+        let has_radius = radius_tl > 0.0 || radius_tr > 0.0 || radius_br > 0.0 || radius_bl > 0.0;
+        let uniform_radius = radius_tl == radius_tr && radius_tr == radius_br && radius_br == radius_bl;
+        let radius = radius_tl; // 用于统一圆角的情况
         
         // 解析 src 和 mode
         let parts: Vec<&str> = node.text.split('|').collect();
         let src = parts.get(0).unwrap_or(&"");
         let mode = parts.get(1).unwrap_or(&"scaleToFill");
         
+        // 应用透明度
+        let apply_opacity = |color: Color| -> Color {
+            if style.opacity < 1.0 {
+                Color::new(color.r, color.g, color.b, (color.a as f32 * style.opacity) as u8)
+            } else {
+                color
+            }
+        };
+        
+        // 绘制盒子阴影
+        if let Some(shadow) = &style.box_shadow {
+            draw_box_shadow(canvas, shadow, x, y, w, h, radius);
+        }
+        
         // 绘制背景
-        let bg_color = style.background_color.unwrap_or(Color::from_hex(0xF5F5F5));
+        let bg_color = apply_opacity(style.background_color.unwrap_or(Color::from_hex(0xF5F5F5)));
         let bg_paint = Paint::new()
             .with_color(bg_color)
             .with_style(PaintStyle::Fill)
             .with_anti_alias(true);
         
-        if radius > 0.0 {
+        if has_radius {
             let mut path = Path::new();
-            path.add_round_rect(x, y, w, h, radius);
+            if uniform_radius {
+                path.add_round_rect(x, y, w, h, radius);
+            } else {
+                path.add_round_rect_varying(x, y, w, h, radius_tl, radius_tr, radius_br, radius_bl);
+            }
             canvas.draw_path(&path, &bg_paint);
         } else {
             canvas.draw_rect(&GeoRect::new(x, y, w, h), &bg_paint);
@@ -199,6 +251,7 @@ impl ImageComponent {
         // 尝试加载并绘制图片
         if !src.is_empty() {
             if let Some(img_data) = load_image(src) {
+                // 绘制图片（透明度通过背景色已经处理）
                 canvas.draw_image(
                     &img_data.data,
                     img_data.width,
@@ -209,34 +262,61 @@ impl ImageComponent {
                 );
                 
                 // 绘制边框
-                if style.border_width > 0.0 {
-                    if let Some(bc) = style.border_color {
-                        let border_paint = Paint::new()
-                            .with_color(bc)
-                            .with_style(PaintStyle::Stroke)
-                            .with_anti_alias(true);
-                        if radius > 0.0 {
-                            let mut path = Path::new();
-                            path.add_round_rect(x, y, w, h, radius);
-                            canvas.draw_path(&path, &border_paint);
-                        } else {
-                            canvas.draw_rect(&GeoRect::new(x, y, w, h), &border_paint);
-                        }
-                    }
-                }
+                Self::draw_border(canvas, style, x, y, w, h, has_radius, uniform_radius, 
+                                  radius, radius_tl, radius_tr, radius_br, radius_bl);
                 return;
             }
         }
         
         // 如果图片加载失败，绘制占位符
-        Self::draw_placeholder(canvas, x, y, w, h, radius, style);
+        Self::draw_placeholder(canvas, x, y, w, h, has_radius, uniform_radius, 
+                               radius, radius_tl, radius_tr, radius_br, radius_bl, style);
+    }
+    
+    /// 绘制边框
+    fn draw_border(
+        canvas: &mut Canvas,
+        style: &NodeStyle,
+        x: f32, y: f32, w: f32, h: f32,
+        has_radius: bool,
+        uniform_radius: bool,
+        radius: f32,
+        radius_tl: f32, radius_tr: f32, radius_br: f32, radius_bl: f32,
+    ) {
+        if style.border_width > 0.0 {
+            if let Some(bc) = style.border_color {
+                let border_color = if style.opacity < 1.0 {
+                    Color::new(bc.r, bc.g, bc.b, (bc.a as f32 * style.opacity) as u8)
+                } else {
+                    bc
+                };
+                let border_paint = Paint::new()
+                    .with_color(border_color)
+                    .with_style(PaintStyle::Stroke)
+                    .with_anti_alias(true);
+                if has_radius {
+                    let mut path = Path::new();
+                    if uniform_radius {
+                        path.add_round_rect(x, y, w, h, radius);
+                    } else {
+                        path.add_round_rect_varying(x, y, w, h, radius_tl, radius_tr, radius_br, radius_bl);
+                    }
+                    canvas.draw_path(&path, &border_paint);
+                } else {
+                    canvas.draw_rect(&GeoRect::new(x, y, w, h), &border_paint);
+                }
+            }
+        }
     }
     
     /// 绘制图片占位符（山形+太阳图标）
     fn draw_placeholder(
         canvas: &mut Canvas,
         x: f32, y: f32, w: f32, h: f32,
+        has_radius: bool,
+        uniform_radius: bool,
         radius: f32,
+        radius_tl: f32, radius_tr: f32, radius_br: f32, radius_bl: f32,
         style: &NodeStyle,
     ) {
         let icon_size = w.min(h) * 0.35;
@@ -272,20 +352,7 @@ impl ImageComponent {
         canvas.draw_path(&mountain2, &icon_paint);
         
         // 绘制边框
-        if style.border_width > 0.0 {
-            if let Some(bc) = style.border_color {
-                let border_paint = Paint::new()
-                    .with_color(bc)
-                    .with_style(PaintStyle::Stroke)
-                    .with_anti_alias(true);
-                if radius > 0.0 {
-                    let mut path = Path::new();
-                    path.add_round_rect(x, y, w, h, radius);
-                    canvas.draw_path(&path, &border_paint);
-                } else {
-                    canvas.draw_rect(&GeoRect::new(x, y, w, h), &border_paint);
-                }
-            }
-        }
+        Self::draw_border(canvas, style, x, y, w, h, has_radius, uniform_radius,
+                          radius, radius_tl, radius_tr, radius_br, radius_bl);
     }
 }
