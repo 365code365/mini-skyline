@@ -9,6 +9,7 @@ mod scroll_view;
 mod layout;
 pub mod interaction;
 pub mod scroll_controller;
+pub mod scroll_cache;
 
 pub use component::{Component, ComponentId, ComponentTree, Style};
 pub use view::View;
@@ -19,3 +20,4 @@ pub use scroll_view::ScrollView;
 pub use layout::{Layout, FlexDirection, FlexAlign};
 pub use interaction::{InteractionManager, InteractiveElement, InteractionType, InteractionResult, KeyInput, ComponentState, calculate_cursor_position};
 pub use scroll_controller::ScrollController;
+pub use scroll_cache::{ScrollViewCache, ScrollCacheManager};

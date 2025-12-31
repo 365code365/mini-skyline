@@ -320,6 +320,8 @@ impl MiniAppWindow {
     }
 
     fn render(&mut self) {
+        // 获取页面数据
+        // 每次渲染都重新获取数据，因为数据可能已经变化
         let page_data = if let Ok(data_str) = self.app.eval("__getPageData()") {
             serde_json::from_str(&data_str).unwrap_or(json!({}))
         } else {
@@ -331,19 +333,20 @@ impl MiniAppWindow {
             None => return,
         };
         
-        let current_path = page.path.clone();
-        let wxml_nodes = page.wxml_nodes.clone();
-        let scroll_offset = self.scroll.get_position();
-        let has_tabbar = self.is_tabbar_page(&current_path);
+        let current_path = &page.path;
+        let has_tabbar = self.is_tabbar_page(current_path);
         let viewport_height = (LOGICAL_HEIGHT - if has_tabbar { TABBAR_HEIGHT } else { 0 }) as f32;
+        let scroll_offset = self.scroll.get_position();
         
         let mut content_height = 0.0f32;
         if let Some(canvas) = &mut self.canvas {
             canvas.clear(Color::from_hex(0xF5F5F5));
             if let Some(renderer) = &mut self.renderer {
-                content_height = renderer.render_with_scroll_and_viewport(canvas, &wxml_nodes, &page_data, &mut self.interaction, scroll_offset, viewport_height);
+                content_height = renderer.render_with_scroll_and_viewport(canvas, &page.wxml_nodes, &page_data, &mut self.interaction, scroll_offset, viewport_height);
             }
         }
+        
+        let current_path = current_path.clone();  // 需要在这里 clone，因为后面要用
         
         if content_height > 0.0 {
             self.scroll.update_content_height(content_height, viewport_height);
@@ -357,19 +360,23 @@ impl MiniAppWindow {
                 self.canvas = Some(Canvas::new(physical_width, required_height));
                 
                 // 重新渲染到新 canvas
-                if let Some(canvas) = &mut self.canvas {
-                    canvas.clear(Color::from_hex(0xF5F5F5));
-                    if let Some(renderer) = &mut self.renderer {
-                        renderer.render_with_scroll_and_viewport(canvas, &wxml_nodes, &page_data, &mut self.interaction, scroll_offset, viewport_height);
+                if let Some(page) = self.page_stack.last() {
+                    if let Some(canvas) = &mut self.canvas {
+                        canvas.clear(Color::from_hex(0xF5F5F5));
+                        if let Some(renderer) = &mut self.renderer {
+                            renderer.render_with_scroll_and_viewport(canvas, &page.wxml_nodes, &page_data, &mut self.interaction, scroll_offset, viewport_height);
+                        }
                     }
                 }
             }
         }
         
-        if let Some(fixed_canvas) = &mut self.fixed_canvas {
-            fixed_canvas.clear(Color::new(0, 0, 0, 0));
-            if let Some(renderer) = &mut self.renderer {
-                renderer.render_fixed_elements(fixed_canvas, &wxml_nodes, &page_data, &mut self.interaction, viewport_height);
+        if let Some(page) = self.page_stack.last() {
+            if let Some(fixed_canvas) = &mut self.fixed_canvas {
+                fixed_canvas.clear(Color::new(0, 0, 0, 0));
+                if let Some(renderer) = &mut self.renderer {
+                    renderer.render_fixed_elements(fixed_canvas, &page.wxml_nodes, &page_data, &mut self.interaction, viewport_height);
+                }
             }
         }
         
@@ -762,16 +769,21 @@ impl ApplicationHandler for MiniAppWindow {
             WindowEvent::MouseWheel { delta, .. } => {
                 let (delta_y, is_precise) = match delta {
                     MouseScrollDelta::LineDelta(_, y) => (-y * 20.0, false),
-                    // 触控板：将物理像素转换为逻辑像素，并降低灵敏度
-                    MouseScrollDelta::PixelDelta(pos) => (-pos.y as f32 / self.scale_factor as f32 * 0.5, true),
+                    // 触控板：直接使用物理像素值，提高响应速度
+                    MouseScrollDelta::PixelDelta(pos) => (-pos.y as f32 / self.scale_factor as f32, true),
                 };
+                
+                // 忽略极小的滚动
+                if delta_y.abs() < 0.1 {
+                    return;
+                }
                 
                 let x = self.mouse_pos.0;
                 let y = self.mouse_pos.1;
                 let actual_y = y + self.scroll.get_position();
                 
                 // 检查是否在 ScrollArea 内
-                let mut handled = false;
+                let mut handled_by_scrollview = false;
                 
                 // 首先检查 fixed 元素（使用视口坐标）
                 let mut scroll_area_id = if let Some(element) = self.interaction.hit_test(x, y) {
@@ -796,16 +808,19 @@ impl ApplicationHandler for MiniAppWindow {
                 if let Some(id) = scroll_area_id {
                     if let Some(controller) = self.interaction.get_scroll_controller_mut(&id) {
                         controller.handle_scroll(delta_y, is_precise);
-                        handled = true;
+                        handled_by_scrollview = true;
+                        // scroll-view 滚动需要重新渲染
+                        self.needs_redraw = true;
                     }
                 }
                 
-                if !handled {
+                if !handled_by_scrollview {
                     self.scroll.handle_scroll(delta_y, is_precise);
+                    // 页面滚动只需要 present，不需要重新渲染
+                    // needs_redraw 保持不变
                 }
                 
-                // 滚动时不需要重新渲染，只需要 present
-                // needs_redraw 保持不变，只请求重绘
+                // 滚动时请求重绘
                 if let Some(w) = &self.window { w.request_redraw(); }
             }
             
@@ -951,14 +966,22 @@ impl ApplicationHandler for MiniAppWindow {
                 
                 let has_video = mini_render::renderer::components::has_playing_video();
                 
-                if self.needs_redraw || has_video {
+                // 检查是否有 scroll-view 在滚动（需要重新渲染）
+                let any_scrollview_scrolling = self.interaction.scroll_controllers.values().any(|c| c.is_animating() || c.is_dragging);
+                
+                // 需要重新渲染的情况：
+                // 1. needs_redraw 为 true（数据变化、点击等）
+                // 2. 有视频在播放
+                // 3. scroll-view 内部在滚动（需要重新渲染 scroll-view 内容）
+                if self.needs_redraw || has_video || any_scrollview_scrolling {
                     self.render();
                     self.needs_redraw = false;
                 }
+                // 页面滚动只需要 present，不需要重新渲染
                 self.present();
                 
-                let any_scroll_active = self.interaction.scroll_controllers.values().any(|c| c.is_animating() || c.is_dragging);
-                if self.scroll.is_animating() || self.scroll.is_dragging || has_video || any_scroll_active {
+                // 继续请求重绘的情况
+                if self.scroll.is_animating() || self.scroll.is_dragging || has_video || any_scrollview_scrolling {
                     if let Some(window) = &self.window { window.request_redraw(); }
                 }
             }

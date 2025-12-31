@@ -4,6 +4,7 @@ use crate::parser::wxml::{WxmlNode, WxmlNodeType};
 use crate::parser::wxss::StyleSheet;
 use crate::text::TextRenderer;
 use crate::ui::interaction::{InteractionManager, InteractiveElement, InteractionType};
+use crate::ui::scroll_cache::ScrollCacheManager;
 use crate::{Canvas, Color, Rect as GeoRect};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
@@ -40,6 +41,8 @@ pub struct WxmlRenderer {
     text_renderer: Option<TextRenderer>,
     scale_factor: f32,
     cache: Option<CachedLayout>,
+    /// Scroll-view 离屏缓存管理器
+    scroll_cache: ScrollCacheManager,
 }
 
 impl WxmlRenderer {
@@ -60,6 +63,7 @@ impl WxmlRenderer {
             text_renderer,
             scale_factor,
             cache: None,
+            scroll_cache: ScrollCacheManager::new(),
         }
     }
 
@@ -73,6 +77,9 @@ impl WxmlRenderer {
                 return; // Cache hit!
             }
         }
+        
+        // 数据变化，标记所有 scroll-view 缓存为脏
+        self.scroll_cache.mark_all_dirty();
         
         let rendered = crate::parser::TemplateEngine::render(nodes, data);
         let mut taffy = TaffyTree::new();
@@ -147,7 +154,8 @@ impl WxmlRenderer {
         self.update_layout_if_needed(nodes, data);
         
         self.event_bindings.clear();
-        interaction.clear_elements();
+        // 不清除交互元素，保留 scroll controller 状态
+        // interaction.clear_elements();  // 移除这行，避免每帧重建
         
         if let Some(cache) = self.cache.take() {
             let content_height = cache.content_height;
@@ -334,24 +342,53 @@ impl WxmlRenderer {
         if !Self::is_leaf_component(&node.tag) {
             let is_scroll_view = node.tag == "scroll-view";
             let mut child_offset_y = 0.0;
+            let scroll_position: f32;
             
             if is_scroll_view {
                 canvas.save();
                 canvas.clip_rect(GeoRect::new(x, y, w, h));
                 
-                if let Some(controller) = interaction.get_scroll_controller(&component_id) {
-                    child_offset_y = -controller.get_position();
-                }
+                scroll_position = if let Some(controller) = interaction.get_scroll_controller(&component_id) {
+                    let pos = controller.get_position();
+                    child_offset_y = -pos * sf; // 转换为物理像素
+                    pos
+                } else {
+                    0.0
+                };
+            } else {
+                scroll_position = 0.0;
             }
 
-            for child in &node.children {
-                let child_layout = taffy.layout(child.taffy_node).unwrap();
-                let child_x = x + child_layout.location.x;
-                let child_y = y + child_layout.location.y + child_offset_y;
-                let child_w = child_layout.size.width;
-                let child_h = child_layout.size.height;
+            // 对于 scroll-view，只渲染可见区域内的子元素
+            if is_scroll_view {
+                let viewport_top = scroll_position * sf;
+                let viewport_bottom = viewport_top + h;
                 
-                self.draw_fixed_child_recursive(taffy, canvas, child, child_x, child_y, child_w, child_h, text_color, interaction, viewport_height);
+                for child in &node.children {
+                    let child_layout = taffy.layout(child.taffy_node).unwrap();
+                    let child_top = child_layout.location.y;
+                    let child_bottom = child_top + child_layout.size.height;
+                    
+                    // 只渲染与视口相交的子元素
+                    if child_bottom >= viewport_top && child_top <= viewport_bottom {
+                        let child_x = x + child_layout.location.x;
+                        let child_y = y + child_layout.location.y + child_offset_y;
+                        let child_w = child_layout.size.width;
+                        let child_h = child_layout.size.height;
+                        
+                        self.draw_fixed_child_recursive(taffy, canvas, child, child_x, child_y, child_w, child_h, text_color, interaction, viewport_height);
+                    }
+                }
+            } else {
+                for child in &node.children {
+                    let child_layout = taffy.layout(child.taffy_node).unwrap();
+                    let child_x = x + child_layout.location.x;
+                    let child_y = y + child_layout.location.y + child_offset_y;
+                    let child_w = child_layout.size.width;
+                    let child_h = child_layout.size.height;
+                    
+                    self.draw_fixed_child_recursive(taffy, canvas, child, child_x, child_y, child_w, child_h, text_color, interaction, viewport_height);
+                }
             }
 
             if is_scroll_view {
@@ -646,23 +683,77 @@ impl WxmlRenderer {
         if !Self::is_leaf_component(&node.tag) {
             let is_scroll_view = node.tag == "scroll-view";
             let mut child_offset_y = 0.0;
+            let scroll_position: f32;
             
             if is_scroll_view {
+                // 计算 scroll-view 内容高度
+                let mut content_height = 0.0f32;
+                for child in &node.children {
+                    let child_layout = taffy.layout(child.taffy_node).unwrap();
+                    let child_bottom = child_layout.location.y + child_layout.size.height;
+                    content_height = content_height.max(child_bottom);
+                }
+                
+                // 获取滚动位置
+                scroll_position = if let Some(controller) = interaction.get_scroll_controller(&component_id) {
+                    controller.get_position()
+                } else {
+                    0.0
+                };
+                
+                // 检查缓存是否需要更新
+                let cache_needs_render = {
+                    let cache = self.scroll_cache.get_or_create(
+                        &component_id,
+                        w as u32,
+                        content_height.ceil() as u32,
+                        (w / sf) as u32,
+                        (h / sf) as u32,
+                    );
+                    cache.needs_render()
+                };
+                
+                if cache_needs_render {
+                    // 创建临时 Canvas 用于渲染
+                    let mut temp_canvas = Canvas::new(w as u32, content_height.ceil() as u32);
+                    temp_canvas.clear(node.style.background_color.unwrap_or(Color::TRANSPARENT));
+                    
+                    let text_color = node.style.text_color.unwrap_or(Color::BLACK);
+                    
+                    // 渲染所有子元素到临时 Canvas
+                    for child in &node.children {
+                        self.draw_child_to_cache(&mut temp_canvas, taffy, child, 0.0, 0.0, text_color, interaction);
+                    }
+                    
+                    // 将临时 Canvas 的内容复制到缓存
+                    if let Some(cache) = self.scroll_cache.get_mut(&component_id) {
+                        // 直接替换缓存的 canvas
+                        cache.canvas = temp_canvas;
+                        cache.mark_clean();
+                    }
+                }
+                
+                // 从缓存复制可见区域到主 Canvas
                 canvas.save();
                 canvas.clip_rect(GeoRect::new(x, y, w, h));
                 
-                if let Some(controller) = interaction.get_scroll_controller(&component_id) {
-                    child_offset_y = -controller.get_position();
+                if let Some(cache) = self.scroll_cache.get(&component_id) {
+                    cache.blit_to(canvas, scroll_position, x, y, sf);
                 }
-            }
-
-            let text_color = node.style.text_color.unwrap_or(Color::BLACK);
-            for child in &node.children { 
-                self.draw_child_with_interaction(canvas, taffy, child, x, y + child_offset_y, text_color, interaction, scroll_offset, viewport_height); 
-            }
-
-            if is_scroll_view {
+                
                 canvas.restore();
+                
+                // 注册子元素的交互区域（需要考虑滚动偏移）
+                child_offset_y = -scroll_position * sf;
+                let text_color = node.style.text_color.unwrap_or(Color::BLACK);
+                for child in &node.children {
+                    self.register_child_interactions(taffy, child, x, y + child_offset_y, text_color, interaction, scroll_position, h / sf);
+                }
+            } else {
+                let text_color = node.style.text_color.unwrap_or(Color::BLACK);
+                for child in &node.children { 
+                    self.draw_child_with_interaction(canvas, taffy, child, x, y + child_offset_y, text_color, interaction, scroll_offset, viewport_height); 
+                }
             }
         }
 
@@ -677,38 +768,28 @@ impl WxmlRenderer {
         }
     }
     
-    fn draw_child_with_interaction(
-        &mut self, 
-        canvas: &mut Canvas, 
-        taffy: &TaffyTree, 
-        node: &RenderNode, 
-        ox: f32, 
-        oy: f32, 
+    /// 渲染子节点到离屏缓存（不处理交互状态，纯渲染）
+    fn draw_child_to_cache(
+        &self,
+        canvas: &mut Canvas,
+        taffy: &TaffyTree,
+        node: &RenderNode,
+        ox: f32,
+        oy: f32,
         inherited_color: Color,
-        interaction: &mut InteractionManager,
-        scroll_offset: f32,
-        viewport_height: f32,
+        interaction: &InteractionManager,
     ) {
-        // 跳过 fixed 元素，它们会单独渲染
-        if node.style.is_fixed {
-            return;
-        }
-        
         let sf = self.scale_factor;
         let layout = taffy.layout(node.taffy_node).unwrap();
         let x = ox + layout.location.x;
         let y = oy + layout.location.y;
         let w = layout.size.width;
         let h = layout.size.height;
-
-        // 不使用 viewport culling，渲染整个内容到 canvas
-        // 滚动在 present_to_buffer 中处理
         
         let logical_bounds = GeoRect::new(x / sf, y / sf, w / sf, h / sf);
-
-        let text_color = node.style.text_color.unwrap_or(inherited_color);
         let component_id = Self::get_component_id(node, &logical_bounds);
         
+        let text_color = node.style.text_color.unwrap_or(inherited_color);
         let mut node_to_draw = node.clone();
         if node_to_draw.style.text_color.is_none() {
             node_to_draw.style.text_color = Some(text_color);
@@ -751,38 +832,190 @@ impl WxmlRenderer {
                         }
                     }
                 }
-                "input" | "textarea" => {
-                    let placeholder = node.attrs.get("placeholder").cloned().unwrap_or_default();
-                    
-                    // 检查是否聚焦
-                    let is_focused = interaction.focused_input.as_ref()
-                        .map(|f| f.id == component_id)
-                        .unwrap_or(false);
-                    
-                    if state.value.is_empty() && !is_focused {
-                        // 没有输入值且未聚焦时显示 placeholder
-                        node_to_draw.text = placeholder;
-                        node_to_draw.style.text_color = Some(Color::from_hex(0xBFBFBF));
-                    } else {
-                        // 有输入值或聚焦时显示实际值
-                        node_to_draw.text = state.value.clone();
-                        node_to_draw.style.text_color = Some(Color::BLACK);
-                    }
-                }
                 _ => {}
             }
+        }
+        
+        // 绘制组件
+        self.draw_component(canvas, &node_to_draw, x, y, w, h, sf);
+        
+        // 递归绘制子节点
+        if !Self::is_leaf_component(&node.tag) {
+            for child in &node.children {
+                self.draw_child_to_cache(canvas, taffy, child, x, y, text_color, interaction);
+            }
+        }
+    }
+    
+    /// 注册 scroll-view 子元素的交互区域
+    fn register_child_interactions(
+        &mut self,
+        taffy: &TaffyTree,
+        node: &RenderNode,
+        ox: f32,
+        oy: f32,
+        inherited_color: Color,
+        interaction: &mut InteractionManager,
+        scroll_position: f32,
+        viewport_height: f32,
+    ) {
+        let sf = self.scale_factor;
+        let layout = taffy.layout(node.taffy_node).unwrap();
+        let x = ox + layout.location.x;
+        let y = oy + layout.location.y;
+        let w = layout.size.width;
+        let h = layout.size.height;
+        
+        // 检查是否在可见区域内
+        let logical_y = y / sf;
+        let logical_h = h / sf;
+        let viewport_top = scroll_position;
+        let viewport_bottom = scroll_position + viewport_height;
+        
+        // 只注册可见区域内的元素
+        if logical_y + logical_h < viewport_top || logical_y > viewport_bottom {
+            return;
+        }
+        
+        let logical_bounds = GeoRect::new(x / sf, y / sf, w / sf, h / sf);
+        let text_color = node.style.text_color.unwrap_or(inherited_color);
+        
+        // 注册交互元素
+        self.register_interactive_element(node, node, &logical_bounds, interaction, taffy, false);
+        
+        // 递归注册子元素
+        if !Self::is_leaf_component(&node.tag) {
+            for child in &node.children {
+                self.register_child_interactions(taffy, child, x, y, text_color, interaction, scroll_position, viewport_height);
+            }
+        }
+        
+        // 记录事件绑定
+        for (et, h, d) in &node.events {
+            self.event_bindings.push(EventBinding {
+                event_type: et.clone(),
+                handler: h.clone(),
+                data: d.clone(),
+                bounds: logical_bounds,
+            });
+        }
+    }
+    
+    fn draw_child_with_interaction(
+        &mut self, 
+        canvas: &mut Canvas, 
+        taffy: &TaffyTree, 
+        node: &RenderNode, 
+        ox: f32, 
+        oy: f32, 
+        inherited_color: Color,
+        interaction: &mut InteractionManager,
+        scroll_offset: f32,
+        viewport_height: f32,
+    ) {
+        // 跳过 fixed 元素，它们会单独渲染
+        if node.style.is_fixed {
+            return;
+        }
+        
+        let sf = self.scale_factor;
+        let layout = taffy.layout(node.taffy_node).unwrap();
+        let x = ox + layout.location.x;
+        let y = oy + layout.location.y;
+        let w = layout.size.width;
+        let h = layout.size.height;
+
+        // 不使用 viewport culling，渲染整个内容到 canvas
+        // 滚动在 present_to_buffer 中处理
+        
+        let logical_bounds = GeoRect::new(x / sf, y / sf, w / sf, h / sf);
+
+        let text_color = node.style.text_color.unwrap_or(inherited_color);
+        let component_id = Self::get_component_id(node, &logical_bounds);
+        
+        // 检查是否需要修改节点（只有交互组件才需要 clone）
+        let needs_modification = node.style.text_color.is_none() 
+            || matches!(node.tag.as_str(), "checkbox" | "switch" | "radio" | "slider" | "input" | "textarea")
+            && interaction.get_state(&component_id).is_some();
+        
+        // 只在需要时才 clone
+        let node_to_draw: std::borrow::Cow<RenderNode> = if needs_modification {
+            let mut modified = node.clone();
+            if modified.style.text_color.is_none() {
+                modified.style.text_color = Some(text_color);
+            }
+            
+            // 应用交互状态
+            if let Some(state) = interaction.get_state(&component_id) {
+                match node.tag.as_str() {
+                    "checkbox" | "switch" => {
+                        modified.style.custom_data = if state.checked { 1.0 } else { 0.0 };
+                        let checkbox_color = node.attrs.get("color")
+                            .and_then(|c| super::components::parse_color_str(c))
+                            .unwrap_or(Color::from_hex(0x09BB07));
+                        if state.checked {
+                            modified.style.background_color = Some(checkbox_color);
+                            modified.style.border_color = Some(checkbox_color);
+                        } else {
+                            modified.style.background_color = Some(Color::WHITE);
+                            modified.style.border_color = Some(Color::from_hex(0xD1D1D1));
+                        }
+                    }
+                    "radio" => {
+                        modified.style.custom_data = if state.checked { 1.0 } else { 0.0 };
+                        let radio_color = node.attrs.get("color")
+                            .and_then(|c| super::components::parse_color_str(c))
+                            .unwrap_or(Color::from_hex(0x09BB07));
+                        if state.checked {
+                            modified.style.background_color = Some(radio_color);
+                            modified.style.border_color = Some(radio_color);
+                        } else {
+                            modified.style.background_color = Some(Color::WHITE);
+                            modified.style.border_color = Some(Color::from_hex(0xD1D1D1));
+                        }
+                    }
+                    "slider" => {
+                        if let Ok(v) = state.value.parse::<f32>() {
+                            modified.style.custom_data = v / 100.0;
+                            if !modified.text.is_empty() {
+                                modified.text = format!("{}", v as i32);
+                            }
+                        }
+                    }
+                    "input" | "textarea" => {
+                        let placeholder = node.attrs.get("placeholder").cloned().unwrap_or_default();
+                        let is_focused = interaction.focused_input.as_ref()
+                            .map(|f| f.id == component_id)
+                            .unwrap_or(false);
+                        
+                        if state.value.is_empty() && !is_focused {
+                            modified.text = placeholder;
+                            modified.style.text_color = Some(Color::from_hex(0xBFBFBF));
+                        } else {
+                            modified.text = state.value.clone();
+                            modified.style.text_color = Some(Color::BLACK);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            std::borrow::Cow::Owned(modified)
         } else if matches!(node.tag.as_str(), "input" | "textarea") {
             // 输入框但还没有交互状态，显示 placeholder 或初始值
             let placeholder = node.attrs.get("placeholder").cloned().unwrap_or_default();
             let initial_value = node.attrs.get("value").cloned().unwrap_or_default();
             
+            let mut modified = node.clone();
             if initial_value.is_empty() {
-                node_to_draw.text = placeholder;
-                node_to_draw.style.text_color = Some(Color::from_hex(0xBFBFBF));
+                modified.text = placeholder;
+                modified.style.text_color = Some(Color::from_hex(0xBFBFBF));
             } else {
-                node_to_draw.text = initial_value;
+                modified.text = initial_value;
             }
-        }
+            std::borrow::Cow::Owned(modified)
+        } else {
+            std::borrow::Cow::Borrowed(node)
+        };
 
         // 注册交互元素（包括 scroll-view）
         self.register_interactive_element(node, &node_to_draw, &logical_bounds, interaction, taffy, false);
@@ -819,18 +1052,42 @@ impl WxmlRenderer {
         if !Self::is_leaf_component(&node.tag) {
             let is_scroll_view = node.tag == "scroll-view";
             let mut child_offset_y = 0.0;
+            let scroll_position: f32;
             
             if is_scroll_view {
                 canvas.save();
                 canvas.clip_rect(GeoRect::new(x, y, w, h));
                 
-                if let Some(controller) = interaction.get_scroll_controller(&component_id) {
-                    child_offset_y = -controller.get_position();
-                }
+                scroll_position = if let Some(controller) = interaction.get_scroll_controller(&component_id) {
+                    let pos = controller.get_position();
+                    child_offset_y = -pos * sf; // 转换为物理像素
+                    pos
+                } else {
+                    0.0
+                };
+            } else {
+                scroll_position = 0.0;
             }
 
-            for child in &node.children { 
-                self.draw_child_with_interaction(canvas, taffy, child, x, y + child_offset_y, text_color, interaction, scroll_offset, viewport_height); 
+            // 对于 scroll-view，只渲染可见区域内的子元素（视口裁剪优化）
+            if is_scroll_view {
+                let viewport_top = scroll_position * sf;
+                let viewport_bottom = viewport_top + h;
+                
+                for child in &node.children {
+                    let child_layout = taffy.layout(child.taffy_node).unwrap();
+                    let child_top = child_layout.location.y;
+                    let child_bottom = child_top + child_layout.size.height;
+                    
+                    // 只渲染与视口相交的子元素
+                    if child_bottom >= viewport_top && child_top <= viewport_bottom {
+                        self.draw_child_with_interaction(canvas, taffy, child, x, y + child_offset_y, text_color, interaction, scroll_offset, viewport_height); 
+                    }
+                }
+            } else {
+                for child in &node.children { 
+                    self.draw_child_with_interaction(canvas, taffy, child, x, y + child_offset_y, text_color, interaction, scroll_offset, viewport_height); 
+                }
             }
 
             if is_scroll_view {

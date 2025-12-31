@@ -171,12 +171,10 @@ impl ScrollController {
             let new_pos = (self.position + delta).clamp(self.min_scroll, self.max_scroll);
             self.position = new_pos;
             
-            // 估算速度用于惯性
-            let instantaneous_velocity = delta * 60.0;
-            self.velocity = self.velocity * 0.6 + instantaneous_velocity * 0.4;
-            
-            // 标记为减速状态
-            self.is_decelerating = true; 
+            // 不启动惯性动画，让触控板自己处理惯性
+            // macOS 触控板会持续发送减速的滚动事件
+            self.velocity = 0.0;
+            self.is_decelerating = false;
             self.is_bouncing = false;
         } else {
             // Mouse Wheel: 脉冲式滚动，严格限制在边界内
