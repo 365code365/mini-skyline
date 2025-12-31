@@ -383,3 +383,115 @@ fn test_rpx_to_px_conversion() {
     // 320px 屏幕 (iPhone SE)
     assert_eq!(rpx_to_px(750.0, 320.0), 320.0);
 }
+
+/// 测试灰色系颜色解析 (#F5F5F5)
+#[test]
+fn test_gray_color_parsing() {
+    let css = r#"
+        .category-nav {
+            background-color: #F5F5F5;
+        }
+        .category-item {
+            background-color: #f5f5f5;
+        }
+    "#;
+    
+    let stylesheet = parse_css(css);
+    
+    // 测试大写
+    let styles1 = stylesheet.get_styles(&["category-nav"], "view");
+    if let Some(StyleValue::Color(c)) = styles1.get("background-color") {
+        assert_eq!(c.r, 245, "category-nav red should be 245");
+        assert_eq!(c.g, 245, "category-nav green should be 245");
+        assert_eq!(c.b, 245, "category-nav blue should be 245");
+    } else {
+        panic!("category-nav background-color should be #F5F5F5");
+    }
+    
+    // 测试小写
+    let styles2 = stylesheet.get_styles(&["category-item"], "view");
+    if let Some(StyleValue::Color(c)) = styles2.get("background-color") {
+        assert_eq!(c.r, 245, "category-item red should be 245");
+        assert_eq!(c.g, 245, "category-item green should be 245");
+        assert_eq!(c.b, 245, "category-item blue should be 245");
+    } else {
+        panic!("category-item background-color should be #f5f5f5");
+    }
+}
+
+/// 测试复合类选择器 (.class1.class2)
+#[test]
+fn test_compound_class_selector() {
+    let css = r#"
+        .category-item {
+            background-color: #F5F5F5;
+        }
+        .category-item.active {
+            background-color: #ffffff;
+        }
+    "#;
+    
+    let stylesheet = parse_css(css);
+    
+    // 只有 category-item 类
+    let styles1 = stylesheet.get_styles(&["category-item"], "view");
+    if let Some(StyleValue::Color(c)) = styles1.get("background-color") {
+        assert_eq!(c.r, 245, "without active: red should be 245");
+        assert_eq!(c.g, 245, "without active: green should be 245");
+        assert_eq!(c.b, 245, "without active: blue should be 245");
+    } else {
+        panic!("category-item should have background-color #F5F5F5");
+    }
+    
+    // 同时有 category-item 和 active 类
+    let styles2 = stylesheet.get_styles(&["category-item", "active"], "view");
+    if let Some(StyleValue::Color(c)) = styles2.get("background-color") {
+        assert_eq!(c.r, 255, "with active: red should be 255");
+        assert_eq!(c.g, 255, "with active: green should be 255");
+        assert_eq!(c.b, 255, "with active: blue should be 255");
+    } else {
+        panic!("category-item.active should have background-color #ffffff");
+    }
+}
+
+/// 测试选择器优先级（特异性）
+#[test]
+fn test_selector_specificity() {
+    let css = r#"
+        .item {
+            color: #000;
+        }
+        .item.highlight {
+            color: #FF0000;
+        }
+        .item.highlight.important {
+            color: #00FF00;
+        }
+    "#;
+    
+    let stylesheet = parse_css(css);
+    
+    // 单类选择器
+    let styles1 = stylesheet.get_styles(&["item"], "view");
+    if let Some(StyleValue::Color(c)) = styles1.get("color") {
+        assert_eq!(c.r, 0);
+        assert_eq!(c.g, 0);
+        assert_eq!(c.b, 0);
+    }
+    
+    // 双类选择器应该覆盖单类
+    let styles2 = stylesheet.get_styles(&["item", "highlight"], "view");
+    if let Some(StyleValue::Color(c)) = styles2.get("color") {
+        assert_eq!(c.r, 255);
+        assert_eq!(c.g, 0);
+        assert_eq!(c.b, 0);
+    }
+    
+    // 三类选择器应该覆盖双类
+    let styles3 = stylesheet.get_styles(&["item", "highlight", "important"], "view");
+    if let Some(StyleValue::Color(c)) = styles3.get("color") {
+        assert_eq!(c.r, 0);
+        assert_eq!(c.g, 255);
+        assert_eq!(c.b, 0);
+    }
+}

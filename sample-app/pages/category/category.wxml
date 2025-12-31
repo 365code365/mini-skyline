@@ -15,7 +15,7 @@
             class="category-item {{currentCategory == item.id ? 'active' : ''}}"
             bindtap="onSelectCategory" data-id="{{item.id}}">
         <text>{{item.name}}</text>
-        <view wx:if="{{item.count > 0}}" class="category-badge">{{item.count}}</view>
+        <text wx:if="{{item.count > 0}}" class="category-badge">{{item.count}}</text>
       </view>
     </view>
 
@@ -50,11 +50,11 @@
   </view>
 
   <!-- 底部购物车栏 -->
-  <view class="cart-bar" style="position: fixed; bottom: 112rpx; left: 0; right: 0;">
+  <view class="cart-bar" style="position: fixed; bottom: 0; left: 0; right: 0;">
     <view class="cart-left" bindtap="onShowCart">
       <view class="cart-icon-wrap">
         <icon type="success" size="28" color="#fff"></icon>
-        <view wx:if="{{totalCount > 0}}" class="cart-badge">{{totalCount}}</view>
+        <text wx:if="{{totalCount > 0}}" class="cart-badge-icon">{{totalCount}}</text>
       </view>
       <view class="cart-info">
         <text class="cart-total">¥{{totalPrice}}</text>
@@ -67,8 +67,8 @@
   </view>
 
   <!-- 购物车弹窗 -->
-  <view wx:if="{{showCartPopup}}" class="cart-popup-mask" bindtap="onHideCart"></view>
-  <view wx:if="{{showCartPopup}}" class="cart-popup" style="position: fixed; bottom: 168rpx; left: 0; right: 0;">
+  <view wx:if="{{showCartPopup}}" class="cart-popup-mask" style="bottom: 100rpx;" bindtap="onHideCart"></view>
+  <view wx:if="{{showCartPopup}}" class="cart-popup" style="position: fixed; bottom: 100rpx; left: 0; right: 0;">
     <view class="cart-popup-header">
       <text class="cart-popup-title">已选商品</text>
       <view class="cart-clear" bindtap="onClearCart">

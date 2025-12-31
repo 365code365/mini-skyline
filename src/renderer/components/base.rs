@@ -284,7 +284,6 @@ pub fn build_base_style(
     node: &WxmlNode,
     ctx: &mut ComponentContext,
 ) -> (Style, NodeStyle) {
-    let sf = ctx.scale_factor;
     let classes = get_classes(node);
     let css = ctx.stylesheet.get_styles(&classes, &node.tag_name);
     
@@ -297,8 +296,61 @@ pub fn build_base_style(
         ..Default::default() 
     };
 
+    // 应用类样式
     for (name, value) in &css {
-        match name.as_str() {
+        apply_style_property(name, value, &mut ts, &mut ns, ctx);
+    }
+
+    // 应用内联样式
+    if let Some(style_str) = node.get_attr("style") {
+        for part in style_str.split(';') {
+            let part = part.trim();
+            if part.is_empty() { continue; }
+            
+            if let Some(colon_pos) = part.find(':') {
+                let name = part[..colon_pos].trim();
+                let value_str = part[colon_pos + 1..].trim();
+                let value = parse_inline_value(value_str);
+                apply_style_property(name, &value, &mut ts, &mut ns, ctx);
+            }
+        }
+    }
+    
+    (ts, ns)
+}
+
+/// 解析内联样式值
+fn parse_inline_value(value: &str) -> StyleValue {
+    let value = value.trim();
+    if value.ends_with("rpx") {
+        if let Ok(n) = value.trim_end_matches("rpx").parse() { return StyleValue::Length(n, LengthUnit::Rpx); }
+    }
+    if value.ends_with("px") {
+        if let Ok(n) = value.trim_end_matches("px").parse() { return StyleValue::Length(n, LengthUnit::Px); }
+    }
+    if value.ends_with("%") {
+        if let Ok(n) = value.trim_end_matches("%").parse() { return StyleValue::Length(n, LengthUnit::Percent); }
+    }
+    if let Ok(n) = value.parse() { return StyleValue::Number(n); }
+    
+    // Color
+    if value.starts_with('#') || value.starts_with("rgb") {
+        if let Some(c) = parse_color_str(value) { return StyleValue::Color(c); }
+    }
+    
+    StyleValue::String(value.to_string())
+}
+
+/// 应用单个样式属性
+fn apply_style_property(
+    name: &str,
+    value: &StyleValue,
+    ts: &mut Style,
+    ns: &mut NodeStyle,
+    ctx: &mut ComponentContext
+) {
+    let sf = ctx.scale_factor;
+    match name {
             "width" => if let Some(v) = to_dimension(value, ctx.screen_width, ctx.screen_height, sf) { ts.size.width = v; }
             "height" => if let Some(v) = to_dimension(value, ctx.screen_width, ctx.screen_height, sf) { ts.size.height = v; }
             "min-width" => if let Some(v) = to_dimension(value, ctx.screen_width, ctx.screen_height, sf) { ts.min_size.width = v; }
@@ -349,7 +401,13 @@ pub fn build_base_style(
                     _ => FlexWrap::NoWrap,
                 };
             }
-            "flex" | "flex-grow" => if let Some(v) = to_px(value, ctx.screen_width, ctx.screen_height) { ts.flex_grow = v; }
+            "flex-grow" => if let Some(v) = to_px(value, ctx.screen_width, ctx.screen_height) { ts.flex_grow = v; }
+            "flex" => if let Some(v) = to_px(value, ctx.screen_width, ctx.screen_height) { 
+                ts.flex_grow = v;
+                // flex: <number> implies flex-grow: <number>, flex-shrink: 1, flex-basis: 0
+                ts.flex_shrink = 1.0;
+                ts.flex_basis = Dimension::Length(0.0);
+            }
             "flex-shrink" => if let Some(v) = to_px(value, ctx.screen_width, ctx.screen_height) { ts.flex_shrink = v; }
             "flex-basis" => if let Some(v) = to_dimension(value, ctx.screen_width, ctx.screen_height, sf) { ts.flex_basis = v; }
             "justify-content" => if let StyleValue::String(s) = value {
@@ -414,7 +472,7 @@ pub fn build_base_style(
             "border" => {
                 // border: 1px solid #000
                 if let StyleValue::String(s) = value {
-                    parse_border_shorthand(s, &mut ns, ctx.screen_width, sf);
+                    parse_border_shorthand(s, ns, ctx.screen_width, sf);
                 }
             }
             "font-size" => if let Some(v) = to_px(value, ctx.screen_width, ctx.screen_height) { ns.font_size = v; }
@@ -549,9 +607,7 @@ pub fn build_base_style(
                 }
             }
             _ => {}
-        }
     }
-    (ts, ns)
 }
 
 /// 解析 box-shadow
