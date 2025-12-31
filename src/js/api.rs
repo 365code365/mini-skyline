@@ -435,12 +435,36 @@ impl MiniAppApi {
             // 调用页面方法（供 native 调用事件处理）
             function __callPageMethod(methodName, eventData) {
                 if (__currentPage && typeof __currentPage[methodName] === 'function') {
+                    // 确保 eventData 是对象
+                    if (typeof eventData === 'string') {
+                        try {
+                            eventData = JSON.parse(eventData);
+                        } catch (e) {
+                            eventData = {};
+                        }
+                    }
+                    eventData = eventData || {};
+                    
+                    // 转换 dataset 中的数字字符串为数字
+                    var dataset = {};
+                    for (var key in eventData) {
+                        if (eventData.hasOwnProperty(key)) {
+                            var val = eventData[key];
+                            // 尝试转换为数字
+                            if (typeof val === 'string' && /^-?\d+(\.\d+)?$/.test(val)) {
+                                dataset[key] = parseFloat(val);
+                            } else {
+                                dataset[key] = val;
+                            }
+                        }
+                    }
+                    
                     var event = {
                         type: 'tap',
                         currentTarget: {
-                            dataset: eventData || {}
+                            dataset: dataset
                         },
-                        detail: eventData || {}
+                        detail: dataset
                     };
                     try {
                         __currentPage[methodName](event);

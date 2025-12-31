@@ -1,6 +1,6 @@
 //! QuickJS 运行时
 
-use rquickjs::{Context, Runtime, Function, Value, Ctx, Result as JsResult};
+use rquickjs::{Context, Runtime, Function, Value, Ctx, Result as JsResult, function::Rest};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -52,9 +52,9 @@ impl JsRuntime {
             let global = ctx.globals();
             let func_clone = func.clone();
             
-            // 创建一个简单的 JS 函数
-            let js_func = Function::new(ctx.clone(), move |_ctx: Ctx, args: Vec<Value>| -> JsResult<String> {
-                let string_args: Vec<String> = args
+            // 使用 Rest<Value> 来接收可变数量的参数
+            let js_func = Function::new(ctx.clone(), move |_ctx: Ctx, args: Rest<Value>| -> JsResult<String> {
+                let string_args: Vec<String> = args.0
                     .iter()
                     .map(|v| value_to_string(v))
                     .collect();
@@ -119,8 +119,22 @@ fn value_to_string(val: &Value) -> String {
         n.to_string()
     } else if let Some(b) = val.as_bool() {
         b.to_string()
-    } else {
+    } else if val.is_array() {
+        // 处理数组
+        if let Some(arr) = val.as_array() {
+            let items: Vec<String> = arr.iter()
+                .filter_map(|item| item.ok())
+                .map(|v| value_to_string(&v))
+                .collect();
+            format!("[{}]", items.join(","))
+        } else {
+            "[]".to_string()
+        }
+    } else if val.is_object() {
+        // 尝试将对象转换为 JSON 字符串
         "[object]".to_string()
+    } else {
+        "[unknown]".to_string()
     }
 }
 

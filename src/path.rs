@@ -86,6 +86,51 @@ impl Path {
         self.cubic_to(x, y + r - kr, x + r - kr, y, x + r, y);
         self.close()
     }
+    
+    /// 添加四角独立圆角的矩形
+    pub fn add_round_rect_varying(&mut self, x: f32, y: f32, w: f32, h: f32, 
+                                   tl: f32, tr: f32, br: f32, bl: f32) -> &mut Self {
+        let k = 0.5522847498; // 贝塞尔曲线近似圆弧的系数
+        
+        // 限制圆角不超过边长的一半
+        let tl = tl.min(w / 2.0).min(h / 2.0);
+        let tr = tr.min(w / 2.0).min(h / 2.0);
+        let br = br.min(w / 2.0).min(h / 2.0);
+        let bl = bl.min(w / 2.0).min(h / 2.0);
+        
+        // 从左上角开始，顺时针绘制
+        self.move_to(x + tl, y);
+        
+        // 上边 + 右上角
+        self.line_to(x + w - tr, y);
+        if tr > 0.0 {
+            let kr = k * tr;
+            self.cubic_to(x + w - tr + kr, y, x + w, y + tr - kr, x + w, y + tr);
+        }
+        
+        // 右边 + 右下角
+        self.line_to(x + w, y + h - br);
+        if br > 0.0 {
+            let kr = k * br;
+            self.cubic_to(x + w, y + h - br + kr, x + w - br + kr, y + h, x + w - br, y + h);
+        }
+        
+        // 下边 + 左下角
+        self.line_to(x + bl, y + h);
+        if bl > 0.0 {
+            let kr = k * bl;
+            self.cubic_to(x + bl - kr, y + h, x, y + h - bl + kr, x, y + h - bl);
+        }
+        
+        // 左边 + 左上角
+        self.line_to(x, y + tl);
+        if tl > 0.0 {
+            let kr = k * tl;
+            self.cubic_to(x, y + tl - kr, x + tl - kr, y, x + tl, y);
+        }
+        
+        self.close()
+    }
 
     /// 添加椭圆
     pub fn add_oval(&mut self, cx: f32, cy: f32, rx: f32, ry: f32) -> &mut Self {

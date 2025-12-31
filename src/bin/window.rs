@@ -833,6 +833,17 @@ impl ApplicationHandler for MiniAppWindow {
                         
                         let x = self.mouse_pos.0;
                         let y = self.mouse_pos.1;
+                        
+                        // 首先检查是否点击在 tabbar 区域，如果是则不处理内容区域的交互
+                        let page = self.page_stack.last();
+                        let has_tabbar = page.map(|p| self.is_tabbar_page(&p.path)).unwrap_or(false);
+                        let tabbar_y = if has_tabbar { (LOGICAL_HEIGHT - TABBAR_HEIGHT) as f32 } else { LOGICAL_HEIGHT as f32 };
+                        
+                        if has_tabbar && y >= tabbar_y {
+                            // 点击在 tabbar 区域，不处理内容区域的交互
+                            return;
+                        }
+                        
                         let actual_y = y + self.scroll.get_position();
                         
                         // 首先检查 fixed 元素（使用视口坐标）

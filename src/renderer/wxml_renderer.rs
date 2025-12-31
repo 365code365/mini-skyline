@@ -323,7 +323,7 @@ impl WxmlRenderer {
         // 注册交互元素
         self.register_interactive_element(node, &node_to_draw, &logical_bounds, interaction, taffy, true);
 
-        // 绘制组件 - 特殊处理 button 组件以支持按下状态
+        // 绘制组件 - 特殊处理 button 以支持按下状态
         let component_id = Self::get_component_id(node, &logical_bounds);
         match node.tag.as_str() {
             "button" => {
@@ -1020,7 +1020,7 @@ impl WxmlRenderer {
         // 注册交互元素（包括 scroll-view）
         self.register_interactive_element(node, &node_to_draw, &logical_bounds, interaction, taffy, false);
 
-        // 绘制组件 - 特殊处理 input 和 button 组件
+        // 绘制组件 - 特殊处理 input、button 和有点击事件的 view 组件
         match node.tag.as_str() {
             "input" | "textarea" => {
                 let focused = interaction.focused_input.as_ref()
@@ -1268,24 +1268,8 @@ impl WxmlRenderer {
                 });
             }
             _ => {
-                // Check if the node has any click handlers (bindtap, catchtap)
-                let has_tap_handler = original_node.events.iter().any(|(et, _, _)| et == "bindtap" || et == "catchtap");
-                
-                if has_tap_handler {
-                    interaction.register_element(InteractiveElement {
-                        interaction_type: InteractionType::View,
-                        id,
-                        bounds: *bounds,
-                        checked: false,
-                        value: String::new(),
-                        disabled,
-                        min: 0.0,
-                        max: 0.0,
-                        content_height: 0.0,
-                        viewport_height: 0.0,
-                        is_fixed,
-                    });
-                }
+                // view 等普通元素不需要注册为交互元素
+                // 点击事件通过 event_bindings 处理
             }
         }
     }
