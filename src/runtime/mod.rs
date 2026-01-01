@@ -3,5 +3,5 @@
 mod app;
 mod window;
 
-pub use app::MiniApp;
+pub use app::{MiniApp, UiEvent};
 pub use window::Window;

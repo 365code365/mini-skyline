@@ -7,6 +7,17 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use std::collections::HashMap;
 
+/// UI 事件（用于通知窗口显示 Toast/Loading/Modal）
+#[derive(Debug, Clone)]
+pub enum UiEvent {
+    ShowToast { title: String, icon: String, duration: u32 },
+    HideToast,
+    ShowLoading { title: String },
+    HideLoading,
+    ShowModal { title: String, content: String, show_cancel: bool, cancel_text: String, confirm_text: String },
+    HideModal,
+}
+
 /// 小程序应用
 pub struct MiniApp {
     runtime: Arc<Mutex<JsRuntime>>,
@@ -18,6 +29,7 @@ pub struct MiniApp {
     running: bool,
     last_frame: Instant,
     timers: HashMap<u32, TimerState>,
+    ui_events: Vec<UiEvent>,
 }
 
 struct TimerState {
@@ -42,6 +54,7 @@ impl MiniApp {
             running: false,
             last_frame: Instant::now(),
             timers: HashMap::new(),
+            ui_events: Vec::new(),
         })
     }
     
@@ -168,17 +181,24 @@ impl MiniApp {
                 BridgeEvent::ClearTimer(id) => {
                     self.timers.remove(&id);
                 }
-                BridgeEvent::ShowToast { title, icon, .. } => {
+                BridgeEvent::ShowToast { title, icon, duration, .. } => {
                     println!("[Toast] {} ({})", title, icon);
+                    self.ui_events.push(UiEvent::ShowToast { title, icon, duration });
+                }
+                BridgeEvent::HideToast => {
+                    self.ui_events.push(UiEvent::HideToast);
                 }
                 BridgeEvent::ShowLoading { title, .. } => {
                     println!("[Loading] {}", title);
+                    self.ui_events.push(UiEvent::ShowLoading { title });
                 }
                 BridgeEvent::HideLoading => {
                     println!("[HideLoading]");
+                    self.ui_events.push(UiEvent::HideLoading);
                 }
-                BridgeEvent::ShowModal { title, content, .. } => {
+                BridgeEvent::ShowModal { title, content, show_cancel, cancel_text, confirm_text } => {
                     println!("[Modal] {}: {}", title, content);
+                    self.ui_events.push(UiEvent::ShowModal { title, content, show_cancel, cancel_text, confirm_text });
                 }
                 BridgeEvent::NavigateTo(url) => {
                     println!("[Navigate] {}", url);
@@ -188,6 +208,11 @@ impl MiniApp {
         }
         
         Ok(())
+    }
+    
+    /// 获取并清空 UI 事件
+    pub fn drain_ui_events(&mut self) -> Vec<UiEvent> {
+        std::mem::take(&mut self.ui_events)
     }
     
     /// 渲染

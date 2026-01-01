@@ -5,11 +5,11 @@ mod app_window;
 use app_window::*;
 use app_window::events::{keyboard, mouse, ime};
 
-use mini_render::runtime::MiniApp;
+use mini_render::runtime::{MiniApp, UiEvent};
 use mini_render::parser::{WxmlParser, WxssParser};
 use mini_render::renderer::WxmlRenderer;
 use mini_render::ui::interaction::InteractionManager;
-use mini_render::{Canvas, Color};
+use mini_render::{Canvas, Color, Paint, PaintStyle, Rect as GeoRect};
 use mini_render::text::TextRenderer;
 use serde_json::json;
 use std::num::NonZeroU32;
@@ -21,6 +21,34 @@ use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowAttributes, WindowId};
 use mini_render::ui::ScrollController;
+
+/// Toast 状态
+#[derive(Clone)]
+struct ToastState {
+    title: String,
+    icon: String,
+    visible: bool,
+    start_time: Instant,
+    duration_ms: u32,
+}
+
+/// Loading 状态
+#[derive(Clone)]
+struct LoadingState {
+    title: String,
+    visible: bool,
+}
+
+/// Modal 状态
+#[derive(Clone)]
+struct ModalState {
+    title: String,
+    content: String,
+    show_cancel: bool,
+    cancel_text: String,
+    confirm_text: String,
+    visible: bool,
+}
 
 struct MiniAppWindow {
     window: Option<Arc<Window>>,
@@ -48,6 +76,10 @@ struct MiniAppWindow {
     interaction: InteractionManager,
     modifiers: winit::keyboard::ModifiersState,
     clipboard: Option<arboard::Clipboard>,
+    // UI 状态
+    toast: Option<ToastState>,
+    loading: Option<LoadingState>,
+    modal: Option<ModalState>,
 }
 
 impl MiniAppWindow {
@@ -122,6 +154,9 @@ impl MiniAppWindow {
             interaction: InteractionManager::new(),
             modifiers: winit::keyboard::ModifiersState::empty(),
             clipboard,
+            toast: None,
+            loading: None,
+            modal: None,
         };
         
         window.navigate_to("pages/index/index", HashMap::new())?;
@@ -465,6 +500,13 @@ impl MiniAppWindow {
         let page = match self.page_stack.last() { Some(p) => p, None => return };
         let has_tabbar = self.is_tabbar_page(&page.path);
         
+        // 收集 UI 状态（避免借用冲突）
+        let toast_state = self.toast.clone();
+        let loading_state = self.loading.clone();
+        let modal_state = self.modal.clone();
+        let sf = self.scale_factor as f32;
+        let last_frame = self.last_frame;
+        
         if let (Some(window), Some(surface)) = (&self.window, &mut self.surface) {
             let size = window.inner_size();
             if let (Some(win_width), Some(win_height)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) {
@@ -485,13 +527,35 @@ impl MiniAppWindow {
                         has_tabbar,
                         tabbar_physical_height,
                     );
+                    
+                    // 渲染 UI 覆盖层（Toast/Loading/Modal）
+                    render_ui_overlay(
+                        &mut buffer, size.width, size.height, sf, last_frame,
+                        &toast_state, &loading_state, &modal_state, self.text_renderer.as_ref()
+                    );
+                    
                     buffer.present().ok();
                 }
             }
         }
     }
-
+    
     fn handle_click(&mut self, x: f32, y: f32) {
+        // 如果有 Modal 显示，处理 Modal 点击
+        if let Some(modal) = &self.modal {
+            if modal.visible {
+                self.handle_modal_click(x, y);
+                return;
+            }
+        }
+        
+        // 如果有 Loading 显示，忽略点击
+        if let Some(loading) = &self.loading {
+            if loading.visible {
+                return;
+            }
+        }
+        
         let page = match self.page_stack.last() { Some(p) => p, None => return };
         let has_tabbar = self.is_tabbar_page(&page.path);
         let tabbar_y = if has_tabbar { (LOGICAL_HEIGHT - TABBAR_HEIGHT) as f32 } else { LOGICAL_HEIGHT as f32 };
@@ -528,6 +592,50 @@ impl MiniAppWindow {
             }
             print_js_output(&self.app);
             self.needs_redraw = true;
+        }
+    }
+    
+    /// 处理 Modal 点击
+    fn handle_modal_click(&mut self, x: f32, y: f32) {
+        let sf = self.scale_factor as f32;
+        let modal_width = (280.0 * sf) as f32;
+        let modal_padding = 20.0 * sf;
+        let title_height = 22.0 * sf;
+        let content_height = 44.0 * sf;
+        let button_height = 44.0 * sf;
+        let modal_height = modal_padding * 2.0 + title_height + content_height + button_height + 20.0 * sf;
+        
+        let modal_x = (LOGICAL_WIDTH as f32 - modal_width / sf) / 2.0;
+        let modal_y = (LOGICAL_HEIGHT as f32 - modal_height / sf) / 2.0;
+        let button_y = modal_y + modal_height / sf - button_height / sf;
+        
+        // 检查是否点击在按钮区域
+        if y >= button_y && y <= button_y + button_height / sf {
+            if x >= modal_x && x <= modal_x + modal_width / sf {
+                let show_cancel = self.modal.as_ref().map(|m| m.show_cancel).unwrap_or(false);
+                
+                if show_cancel {
+                    let button_width = modal_width / sf / 2.0;
+                    if x < modal_x + button_width {
+                        // 点击取消按钮
+                        println!("Modal: 取消");
+                        self.app.eval("if(__modalCallback) __modalCallback({ confirm: false, cancel: true })").ok();
+                    } else {
+                        // 点击确认按钮
+                        println!("Modal: 确认");
+                        self.app.eval("if(__modalCallback) __modalCallback({ confirm: true, cancel: false })").ok();
+                    }
+                } else {
+                    // 只有确认按钮
+                    println!("Modal: 确认");
+                    self.app.eval("if(__modalCallback) __modalCallback({ confirm: true, cancel: false })").ok();
+                }
+                
+                // 关闭 Modal
+                self.modal = None;
+                self.needs_redraw = true;
+                if let Some(w) = &self.window { w.request_redraw(); }
+            }
         }
     }
     
@@ -580,6 +688,74 @@ impl MiniAppWindow {
                         println!("❌ Navigation error: {}", e);
                     }
                     self.update_renderers();
+                }
+            }
+        }
+    }
+    
+    /// 处理 UI 事件（Toast/Loading/Modal）
+    fn process_ui_events(&mut self) {
+        let events = self.app.drain_ui_events();
+        for event in events {
+            match event {
+                UiEvent::ShowToast { title, icon, duration } => {
+                    self.toast = Some(ToastState {
+                        title,
+                        icon,
+                        visible: true,
+                        start_time: Instant::now(),
+                        duration_ms: duration,
+                    });
+                    self.needs_redraw = true;
+                }
+                UiEvent::HideToast => {
+                    if let Some(toast) = &mut self.toast {
+                        toast.visible = false;
+                    }
+                    self.needs_redraw = true;
+                }
+                UiEvent::ShowLoading { title } => {
+                    self.loading = Some(LoadingState {
+                        title,
+                        visible: true,
+                    });
+                    self.needs_redraw = true;
+                }
+                UiEvent::HideLoading => {
+                    if let Some(loading) = &mut self.loading {
+                        loading.visible = false;
+                    }
+                    self.needs_redraw = true;
+                }
+                UiEvent::ShowModal { title, content, show_cancel, cancel_text, confirm_text } => {
+                    self.modal = Some(ModalState {
+                        title,
+                        content,
+                        show_cancel,
+                        cancel_text,
+                        confirm_text,
+                        visible: true,
+                    });
+                    self.needs_redraw = true;
+                }
+                UiEvent::HideModal => {
+                    if let Some(modal) = &mut self.modal {
+                        modal.visible = false;
+                    }
+                    self.needs_redraw = true;
+                }
+            }
+        }
+    }
+    
+    /// 更新 Toast 超时
+    fn update_toast_timeout(&mut self) {
+        if let Some(toast) = &self.toast {
+            if toast.visible {
+                let elapsed = toast.start_time.elapsed().as_millis() as u32;
+                if elapsed >= toast.duration_ms {
+                    self.toast = None;
+                    self.needs_redraw = true;
                 }
             }
         }
@@ -1107,6 +1283,12 @@ impl ApplicationHandler for MiniAppWindow {
                 }
                 print_js_output(&self.app);
                 
+                // 处理 UI 事件
+                self.process_ui_events();
+                
+                // 更新 Toast 超时
+                self.update_toast_timeout();
+                
                 self.update_scroll();
                 self.process_navigation();
                 
@@ -1132,11 +1314,419 @@ impl ApplicationHandler for MiniAppWindow {
                 
                 // 继续请求重绘的情况
                 let has_timers = self.app.has_active_timers();
-                if is_scrolling || has_video || any_scrollview_scrolling || has_focused_input || has_timers {
+                let has_toast = self.toast.as_ref().map(|t| t.visible).unwrap_or(false);
+                let has_loading = self.loading.as_ref().map(|l| l.visible).unwrap_or(false);
+                let has_modal = self.modal.as_ref().map(|m| m.visible).unwrap_or(false);
+                if is_scrolling || has_video || any_scrollview_scrolling || has_focused_input || has_timers || has_toast || has_loading || has_modal {
                     if let Some(window) = &self.window { window.request_redraw(); }
                 }
             }
             _ => {}
+        }
+    }
+}
+
+/// 渲染 UI 覆盖层（Toast/Loading/Modal）
+fn render_ui_overlay(
+    buffer: &mut softbuffer::Buffer<Arc<Window>, Arc<Window>>,
+    width: u32, height: u32, sf: f32, last_frame: Instant,
+    toast: &Option<ToastState>, loading: &Option<LoadingState>, modal: &Option<ModalState>,
+    text_renderer: Option<&TextRenderer>
+) {
+    // 渲染 Loading（优先级最高）
+    if let Some(loading) = loading {
+        if loading.visible {
+            render_loading_to_buffer(buffer, width, height, &loading.title, sf, last_frame, text_renderer);
+            return;
+        }
+    }
+    
+    // 渲染 Modal
+    if let Some(modal) = modal {
+        if modal.visible {
+            render_modal_to_buffer(buffer, width, height, modal, sf, text_renderer);
+            return;
+        }
+    }
+    
+    // 渲染 Toast
+    if let Some(toast) = toast {
+        if toast.visible {
+            render_toast_to_buffer(buffer, width, height, &toast.title, &toast.icon, sf, text_renderer);
+        }
+    }
+}
+
+/// 渲染 Toast 到 buffer
+fn render_toast_to_buffer(buffer: &mut softbuffer::Buffer<Arc<Window>, Arc<Window>>, width: u32, height: u32, title: &str, icon: &str, sf: f32, text_renderer: Option<&TextRenderer>) {
+    let toast_padding = (16.0 * sf) as i32;
+    let toast_min_width = (120.0 * sf) as i32;
+    let toast_height = if icon == "none" { (44.0 * sf) as i32 } else { (100.0 * sf) as i32 };
+    let icon_size = (40.0 * sf) as i32;
+    let font_size = (14.0 * sf) as i32;
+    
+    let text_width = (title.chars().count() as f32 * font_size as f32 * 0.55) as i32;
+    let toast_width = (toast_min_width).max(text_width + toast_padding * 2);
+    
+    let toast_x = (width as i32 - toast_width) / 2;
+    let toast_y = (height as i32 - toast_height) / 2;
+    
+    let bg_color = 0xFF333333u32;
+    let radius = (8.0 * sf) as i32;
+    
+    // 绘制圆角矩形背景
+    for py in toast_y.max(0)..(toast_y + toast_height).min(height as i32) {
+        for px in toast_x.max(0)..(toast_x + toast_width).min(width as i32) {
+            let in_corner = (px < toast_x + radius || px >= toast_x + toast_width - radius) &&
+                           (py < toast_y + radius || py >= toast_y + toast_height - radius);
+            if in_corner {
+                let cx = if px < toast_x + radius { toast_x + radius } else { toast_x + toast_width - radius };
+                let cy = if py < toast_y + radius { toast_y + radius } else { toast_y + toast_height - radius };
+                let dist = (((px - cx) * (px - cx) + (py - cy) * (py - cy)) as f32).sqrt();
+                if dist > radius as f32 { continue; }
+            }
+            let idx = (py as u32 * width + px as u32) as usize;
+            if idx < buffer.len() { buffer[idx] = bg_color; }
+        }
+    }
+    
+    // 绘制图标
+    if icon != "none" {
+        let icon_x = toast_x + (toast_width - icon_size) / 2;
+        let icon_y = toast_y + toast_padding;
+        let icon_color = if icon == "success" { 0xFF09BB07u32 } else { 0xFFFFFFFFu32 };
+        let center_x = icon_x + icon_size / 2;
+        let center_y = icon_y + icon_size / 2;
+        let icon_radius = icon_size / 2 - 2;
+        
+        // 绘制圆环
+        for py in (icon_y).max(0)..(icon_y + icon_size).min(height as i32) {
+            for px in (icon_x).max(0)..(icon_x + icon_size).min(width as i32) {
+                let dist = (((px - center_x) * (px - center_x) + (py - center_y) * (py - center_y)) as f32).sqrt();
+                if dist <= icon_radius as f32 && dist >= (icon_radius - 3) as f32 {
+                    let idx = (py as u32 * width + px as u32) as usize;
+                    if idx < buffer.len() { buffer[idx] = icon_color; }
+                }
+            }
+        }
+        
+        // 绘制勾号
+        if icon == "success" {
+            for t in 0..30 {
+                let t = t as f32 / 30.0;
+                let px = (center_x - icon_radius / 2) as f32 + (icon_radius / 3) as f32 * t;
+                let py = center_y as f32 + (icon_radius / 3) as f32 * t;
+                for dy in -2..=2 { for dx in -2..=2 {
+                    let idx = ((py as i32 + dy) as u32 * width + (px as i32 + dx) as u32) as usize;
+                    if idx < buffer.len() { buffer[idx] = icon_color; }
+                }}
+            }
+            for t in 0..30 {
+                let t = t as f32 / 30.0;
+                let px = (center_x - icon_radius / 6) as f32 + (icon_radius * 2 / 3) as f32 * t;
+                let py = (center_y + icon_radius / 3) as f32 - (icon_radius * 2 / 3) as f32 * t;
+                for dy in -2..=2 { for dx in -2..=2 {
+                    let idx = ((py as i32 + dy) as u32 * width + (px as i32 + dx) as u32) as usize;
+                    if idx < buffer.len() { buffer[idx] = icon_color; }
+                }}
+            }
+        }
+    }
+    
+    // 绘制文字
+    let text_y = if icon == "none" { toast_y + (toast_height - font_size) / 2 } 
+                 else { toast_y + toast_padding + icon_size + (8.0 * sf) as i32 };
+    let text_x = toast_x + (toast_width - text_width) / 2;
+    
+    if let Some(tr) = text_renderer {
+        let mut temp_canvas = Canvas::new(toast_width as u32, font_size as u32 + 4);
+        temp_canvas.clear(Color::TRANSPARENT);
+        let paint = Paint::new().with_color(Color::WHITE);
+        tr.draw_text(&mut temp_canvas, title, 0.0, 0.0, font_size as f32, &paint);
+        let temp_pixels = temp_canvas.pixels();
+        for py in 0..temp_canvas.height() as i32 {
+            for px in 0..temp_canvas.width() as i32 {
+                let src_idx = (py as u32 * temp_canvas.width() + px as u32) as usize;
+                let dst_x = text_x + px;
+                let dst_y = text_y + py;
+                if dst_x >= 0 && dst_x < width as i32 && dst_y >= 0 && dst_y < height as i32 {
+                    let dst_idx = (dst_y as u32 * width + dst_x as u32) as usize;
+                    if dst_idx < buffer.len() && src_idx < temp_pixels.len() {
+                        let pixel = temp_pixels[src_idx];
+                        if pixel.a > 0 { buffer[dst_idx] = 0xFF000000 | ((pixel.r as u32) << 16) | ((pixel.g as u32) << 8) | (pixel.b as u32); }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// 渲染 Loading 到 buffer
+fn render_loading_to_buffer(buffer: &mut softbuffer::Buffer<Arc<Window>, Arc<Window>>, width: u32, height: u32, title: &str, sf: f32, last_frame: Instant, text_renderer: Option<&TextRenderer>) {
+    let loading_size = (100.0 * sf) as i32;
+    let loading_x = (width as i32 - loading_size) / 2;
+    let loading_y = (height as i32 - loading_size) / 2;
+    let radius = (8.0 * sf) as i32;
+    let bg_color = 0xFF333333u32;
+    
+    for py in loading_y.max(0)..(loading_y + loading_size).min(height as i32) {
+        for px in loading_x.max(0)..(loading_x + loading_size).min(width as i32) {
+            let in_corner = (px < loading_x + radius || px >= loading_x + loading_size - radius) &&
+                           (py < loading_y + radius || py >= loading_y + loading_size - radius);
+            if in_corner {
+                let cx = if px < loading_x + radius { loading_x + radius } else { loading_x + loading_size - radius };
+                let cy = if py < loading_y + radius { loading_y + radius } else { loading_y + loading_size - radius };
+                let dist = (((px - cx) * (px - cx) + (py - cy) * (py - cy)) as f32).sqrt();
+                if dist > radius as f32 { continue; }
+            }
+            let idx = (py as u32 * width + px as u32) as usize;
+            if idx < buffer.len() { buffer[idx] = bg_color; }
+        }
+    }
+    
+    // 绘制旋转加载圈
+    let center_x = loading_x + loading_size / 2;
+    let center_y = loading_y + (30.0 * sf) as i32;
+    let spinner_radius = (16.0 * sf) as i32;
+    let time = last_frame.elapsed().as_secs_f32();
+    let angle = time * 5.0;
+    
+    for i in 0..12 {
+        let seg_angle = angle + (i as f32 * std::f32::consts::PI / 6.0);
+        let alpha = ((12 - i) as f32 / 12.0 * 255.0) as u32;
+        let color = 0xFF000000 | (alpha << 16) | (alpha << 8) | alpha;
+        let x1 = center_x + ((spinner_radius - 4) as f32 * seg_angle.cos()) as i32;
+        let y1 = center_y + ((spinner_radius - 4) as f32 * seg_angle.sin()) as i32;
+        let x2 = center_x + (spinner_radius as f32 * seg_angle.cos()) as i32;
+        let y2 = center_y + (spinner_radius as f32 * seg_angle.sin()) as i32;
+        for t in 0..10 {
+            let t = t as f32 / 10.0;
+            let px = (x1 as f32 + (x2 - x1) as f32 * t) as i32;
+            let py = (y1 as f32 + (y2 - y1) as f32 * t) as i32;
+            for dy in -1..=1 { for dx in -1..=1 {
+                if px + dx >= 0 && px + dx < width as i32 && py + dy >= 0 && py + dy < height as i32 {
+                    let idx = ((py + dy) as u32 * width + (px + dx) as u32) as usize;
+                    if idx < buffer.len() { buffer[idx] = color; }
+                }
+            }}
+        }
+    }
+    
+    // 绘制文字
+    let font_size = (14.0 * sf) as i32;
+    let text_width = (title.chars().count() as f32 * font_size as f32 * 0.55) as i32;
+    let text_x = loading_x + (loading_size - text_width) / 2;
+    let text_y = loading_y + loading_size - (30.0 * sf) as i32;
+    
+    if let Some(tr) = text_renderer {
+        let mut temp_canvas = Canvas::new(loading_size as u32, font_size as u32 + 4);
+        temp_canvas.clear(Color::TRANSPARENT);
+        let paint = Paint::new().with_color(Color::WHITE);
+        tr.draw_text(&mut temp_canvas, title, 0.0, 0.0, font_size as f32, &paint);
+        let temp_pixels = temp_canvas.pixels();
+        for py in 0..temp_canvas.height() as i32 {
+            for px in 0..temp_canvas.width() as i32 {
+                let src_idx = (py as u32 * temp_canvas.width() + px as u32) as usize;
+                let dst_x = text_x + px;
+                let dst_y = text_y + py;
+                if dst_x >= 0 && dst_x < width as i32 && dst_y >= 0 && dst_y < height as i32 {
+                    let dst_idx = (dst_y as u32 * width + dst_x as u32) as usize;
+                    if dst_idx < buffer.len() && src_idx < temp_pixels.len() {
+                        let pixel = temp_pixels[src_idx];
+                        if pixel.a > 0 { buffer[dst_idx] = 0xFF000000 | ((pixel.r as u32) << 16) | ((pixel.g as u32) << 8) | (pixel.b as u32); }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// 渲染 Modal 到 buffer
+fn render_modal_to_buffer(buffer: &mut softbuffer::Buffer<Arc<Window>, Arc<Window>>, width: u32, height: u32, modal: &ModalState, sf: f32, text_renderer: Option<&TextRenderer>) {
+    // 绘制半透明遮罩
+    for i in 0..buffer.len() {
+        let existing = buffer[i];
+        let r = ((existing >> 16) & 0xFF) / 2;
+        let g = ((existing >> 8) & 0xFF) / 2;
+        let b = (existing & 0xFF) / 2;
+        buffer[i] = 0xFF000000 | (r << 16) | (g << 8) | b;
+    }
+    
+    let modal_width = (280.0 * sf) as i32;
+    let modal_padding = (20.0 * sf) as i32;
+    let title_height = (22.0 * sf) as i32;
+    let content_height = (44.0 * sf) as i32;
+    let button_height = (44.0 * sf) as i32;
+    let modal_height = modal_padding * 2 + title_height + content_height + button_height + (20.0 * sf) as i32;
+    let modal_x = (width as i32 - modal_width) / 2;
+    let modal_y = (height as i32 - modal_height) / 2;
+    let radius = (12.0 * sf) as i32;
+    let bg_color = 0xFFFFFFFFu32;
+    
+    // 绘制白色背景
+    for py in modal_y.max(0)..(modal_y + modal_height).min(height as i32) {
+        for px in modal_x.max(0)..(modal_x + modal_width).min(width as i32) {
+            let in_corner = (px < modal_x + radius || px >= modal_x + modal_width - radius) &&
+                           (py < modal_y + radius || py >= modal_y + modal_height - radius);
+            if in_corner {
+                let cx = if px < modal_x + radius { modal_x + radius } else { modal_x + modal_width - radius };
+                let cy = if py < modal_y + radius { modal_y + radius } else { modal_y + modal_height - radius };
+                let dist = (((px - cx) * (px - cx) + (py - cy) * (py - cy)) as f32).sqrt();
+                if dist > radius as f32 { continue; }
+            }
+            let idx = (py as u32 * width + px as u32) as usize;
+            if idx < buffer.len() { buffer[idx] = bg_color; }
+        }
+    }
+    
+    // 绘制标题
+    let title_font_size = (17.0 * sf) as i32;
+    let title_y = modal_y + modal_padding;
+    if let Some(tr) = text_renderer {
+        let mut temp_canvas = Canvas::new(modal_width as u32, title_font_size as u32 + 4);
+        temp_canvas.clear(Color::TRANSPARENT);
+        let text_w = tr.measure_text(&modal.title, title_font_size as f32);
+        let text_x = (modal_width as f32 - text_w) / 2.0;
+        let paint = Paint::new().with_color(Color::BLACK);
+        tr.draw_text(&mut temp_canvas, &modal.title, text_x, 0.0, title_font_size as f32, &paint);
+        let temp_pixels = temp_canvas.pixels();
+        for py in 0..temp_canvas.height() as i32 {
+            for px in 0..temp_canvas.width() as i32 {
+                let src_idx = (py as u32 * temp_canvas.width() + px as u32) as usize;
+                let dst_x = modal_x + px;
+                let dst_y = title_y + py;
+                if dst_x >= 0 && dst_x < width as i32 && dst_y >= 0 && dst_y < height as i32 {
+                    let dst_idx = (dst_y as u32 * width + dst_x as u32) as usize;
+                    if dst_idx < buffer.len() && src_idx < temp_pixels.len() {
+                        let pixel = temp_pixels[src_idx];
+                        if pixel.a > 0 { buffer[dst_idx] = 0xFF000000 | ((pixel.r as u32) << 16) | ((pixel.g as u32) << 8) | (pixel.b as u32); }
+                    }
+                }
+            }
+        }
+    }
+    
+    // 绘制内容
+    let content_font_size = (14.0 * sf) as i32;
+    let content_y = title_y + title_font_size + (15.0 * sf) as i32;
+    if let Some(tr) = text_renderer {
+        let mut temp_canvas = Canvas::new(modal_width as u32, content_height as u32);
+        temp_canvas.clear(Color::TRANSPARENT);
+        let text_w = tr.measure_text(&modal.content, content_font_size as f32);
+        let text_x = (modal_width as f32 - text_w) / 2.0;
+        let paint = Paint::new().with_color(Color::from_hex(0x666666));
+        tr.draw_text(&mut temp_canvas, &modal.content, text_x.max(modal_padding as f32), 0.0, content_font_size as f32, &paint);
+        let temp_pixels = temp_canvas.pixels();
+        for py in 0..temp_canvas.height() as i32 {
+            for px in 0..temp_canvas.width() as i32 {
+                let src_idx = (py as u32 * temp_canvas.width() + px as u32) as usize;
+                let dst_x = modal_x + px;
+                let dst_y = content_y + py;
+                if dst_x >= 0 && dst_x < width as i32 && dst_y >= 0 && dst_y < height as i32 {
+                    let dst_idx = (dst_y as u32 * width + dst_x as u32) as usize;
+                    if dst_idx < buffer.len() && src_idx < temp_pixels.len() {
+                        let pixel = temp_pixels[src_idx];
+                        if pixel.a > 0 { buffer[dst_idx] = 0xFF000000 | ((pixel.r as u32) << 16) | ((pixel.g as u32) << 8) | (pixel.b as u32); }
+                    }
+                }
+            }
+        }
+    }
+    
+    // 绘制分隔线
+    let line_y = modal_y + modal_height - button_height - 1;
+    let line_color = 0xFFE5E5E5u32;
+    for px in modal_x..(modal_x + modal_width) {
+        let idx = (line_y as u32 * width + px as u32) as usize;
+        if idx < buffer.len() { buffer[idx] = line_color; }
+    }
+    
+    // 绘制按钮
+    let button_y = modal_y + modal_height - button_height;
+    let button_font_size = (17.0 * sf) as i32;
+    
+    if modal.show_cancel {
+        let button_width = modal_width / 2;
+        // 取消按钮
+        if let Some(tr) = text_renderer {
+            let mut temp_canvas = Canvas::new(button_width as u32, button_font_size as u32 + 4);
+            temp_canvas.clear(Color::TRANSPARENT);
+            let text_w = tr.measure_text(&modal.cancel_text, button_font_size as f32);
+            let text_x = (button_width as f32 - text_w) / 2.0;
+            let paint = Paint::new().with_color(Color::BLACK);
+            tr.draw_text(&mut temp_canvas, &modal.cancel_text, text_x, 0.0, button_font_size as f32, &paint);
+            let temp_pixels = temp_canvas.pixels();
+            let btn_text_y = button_y + (button_height - button_font_size) / 2;
+            for py in 0..temp_canvas.height() as i32 {
+                for px in 0..temp_canvas.width() as i32 {
+                    let src_idx = (py as u32 * temp_canvas.width() + px as u32) as usize;
+                    let dst_x = modal_x + px;
+                    let dst_y = btn_text_y + py;
+                    if dst_x >= 0 && dst_x < width as i32 && dst_y >= 0 && dst_y < height as i32 {
+                        let dst_idx = (dst_y as u32 * width + dst_x as u32) as usize;
+                        if dst_idx < buffer.len() && src_idx < temp_pixels.len() {
+                            let pixel = temp_pixels[src_idx];
+                            if pixel.a > 0 { buffer[dst_idx] = 0xFF000000 | ((pixel.r as u32) << 16) | ((pixel.g as u32) << 8) | (pixel.b as u32); }
+                        }
+                    }
+                }
+            }
+        }
+        // 垂直分隔线
+        let vline_x = modal_x + button_width;
+        for py in button_y..(button_y + button_height) {
+            let idx = (py as u32 * width + vline_x as u32) as usize;
+            if idx < buffer.len() { buffer[idx] = line_color; }
+        }
+        // 确认按钮
+        if let Some(tr) = text_renderer {
+            let mut temp_canvas = Canvas::new(button_width as u32, button_font_size as u32 + 4);
+            temp_canvas.clear(Color::TRANSPARENT);
+            let text_w = tr.measure_text(&modal.confirm_text, button_font_size as f32);
+            let text_x = (button_width as f32 - text_w) / 2.0;
+            let paint = Paint::new().with_color(Color::from_hex(0x576B95));
+            tr.draw_text(&mut temp_canvas, &modal.confirm_text, text_x, 0.0, button_font_size as f32, &paint);
+            let temp_pixels = temp_canvas.pixels();
+            let btn_text_y = button_y + (button_height - button_font_size) / 2;
+            for py in 0..temp_canvas.height() as i32 {
+                for px in 0..temp_canvas.width() as i32 {
+                    let src_idx = (py as u32 * temp_canvas.width() + px as u32) as usize;
+                    let dst_x = modal_x + button_width + px;
+                    let dst_y = btn_text_y + py;
+                    if dst_x >= 0 && dst_x < width as i32 && dst_y >= 0 && dst_y < height as i32 {
+                        let dst_idx = (dst_y as u32 * width + dst_x as u32) as usize;
+                        if dst_idx < buffer.len() && src_idx < temp_pixels.len() {
+                            let pixel = temp_pixels[src_idx];
+                            if pixel.a > 0 { buffer[dst_idx] = 0xFF000000 | ((pixel.r as u32) << 16) | ((pixel.g as u32) << 8) | (pixel.b as u32); }
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        if let Some(tr) = text_renderer {
+            let mut temp_canvas = Canvas::new(modal_width as u32, button_font_size as u32 + 4);
+            temp_canvas.clear(Color::TRANSPARENT);
+            let text_w = tr.measure_text(&modal.confirm_text, button_font_size as f32);
+            let text_x = (modal_width as f32 - text_w) / 2.0;
+            let paint = Paint::new().with_color(Color::from_hex(0x576B95));
+            tr.draw_text(&mut temp_canvas, &modal.confirm_text, text_x, 0.0, button_font_size as f32, &paint);
+            let temp_pixels = temp_canvas.pixels();
+            let btn_text_y = button_y + (button_height - button_font_size) / 2;
+            for py in 0..temp_canvas.height() as i32 {
+                for px in 0..temp_canvas.width() as i32 {
+                    let src_idx = (py as u32 * temp_canvas.width() + px as u32) as usize;
+                    let dst_x = modal_x + px;
+                    let dst_y = btn_text_y + py;
+                    if dst_x >= 0 && dst_x < width as i32 && dst_y >= 0 && dst_y < height as i32 {
+                        let dst_idx = (dst_y as u32 * width + dst_x as u32) as usize;
+                        if dst_idx < buffer.len() && src_idx < temp_pixels.len() {
+                            let pixel = temp_pixels[src_idx];
+                            if pixel.a > 0 { buffer[dst_idx] = 0xFF000000 | ((pixel.r as u32) << 16) | ((pixel.g as u32) << 8) | (pixel.b as u32); }
+                        }
+                    }
+                }
+            }
         }
     }
 }
