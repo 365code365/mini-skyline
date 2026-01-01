@@ -1,7 +1,6 @@
 //! 模板引擎 - 处理数据绑定和条件渲染
 
 use super::wxml::WxmlNode;
-use std::collections::HashMap;
 use serde_json::Value as JsonValue;
 
 /// 模板引擎
@@ -10,10 +9,16 @@ pub struct TemplateEngine;
 impl TemplateEngine {
     /// 渲染模板，替换 {{}} 表达式
     pub fn render(nodes: &[WxmlNode], data: &JsonValue) -> Vec<WxmlNode> {
+        Self::render_with_virtual_list(nodes, data, None)
+    }
+    
+    /// 渲染模板，支持虚拟列表
+    /// viewport: (scroll_offset, viewport_height) 用于虚拟列表优化
+    pub fn render_with_virtual_list(nodes: &[WxmlNode], data: &JsonValue, viewport: Option<(f32, f32)>) -> Vec<WxmlNode> {
         let mut result = Vec::new();
         
         for node in nodes {
-            if let Some(rendered) = Self::render_node(node, data) {
+            if let Some(rendered) = Self::render_node_with_viewport(node, data, viewport) {
                 result.extend(rendered);
             }
         }
@@ -21,7 +26,7 @@ impl TemplateEngine {
         result
     }
     
-    fn render_node(node: &WxmlNode, data: &JsonValue) -> Option<Vec<WxmlNode>> {
+    fn render_node_with_viewport(node: &WxmlNode, data: &JsonValue, viewport: Option<(f32, f32)>) -> Option<Vec<WxmlNode>> {
         match node.node_type {
             super::wxml::WxmlNodeType::Text => {
                 let text = Self::interpolate(&node.text_content, data);
@@ -36,9 +41,9 @@ impl TemplateEngine {
                     }
                 }
                 
-                // 处理 wx:for
+                // 处理 wx:for - 使用虚拟列表优化
                 if let Some(for_expr) = node.attributes.get("wx:for") {
-                    return Some(Self::render_for_loop(node, for_expr, data));
+                    return Some(Self::render_for_loop_virtual(node, for_expr, data, viewport));
                 }
                 
                 // 普通元素
@@ -54,7 +59,7 @@ impl TemplateEngine {
                 }
                 
                 // 处理子节点
-                new_node.children = Self::render(&node.children, data);
+                new_node.children = Self::render_with_virtual_list(&node.children, data, viewport);
                 
                 Some(vec![new_node])
             }
@@ -62,9 +67,9 @@ impl TemplateEngine {
         }
     }
     
-    fn render_for_loop(node: &WxmlNode, for_expr: &str, data: &JsonValue) -> Vec<WxmlNode> {
-        let mut result = Vec::new();
-        
+    /// 虚拟列表渲染 - 只渲染可见区域的元素
+    /// 注意：为了保持布局正确，我们仍然渲染所有元素，视口裁剪在绘制阶段处理
+    fn render_for_loop_virtual(node: &WxmlNode, for_expr: &str, data: &JsonValue, _viewport: Option<(f32, f32)>) -> Vec<WxmlNode> {
         let array_name = Self::extract_expression(for_expr);
         let item_name = node.attributes.get("wx:for-item")
             .map(|s| s.as_str())
@@ -73,31 +78,45 @@ impl TemplateEngine {
             .map(|s| s.as_str())
             .unwrap_or("index");
         
-        if let Some(array) = Self::get_value(&array_name, data) {
-            if let Some(arr) = array.as_array() {
-                for (index, item) in arr.iter().enumerate() {
-                    // 创建循环上下文
-                    let mut loop_data = data.clone();
-                    if let Some(obj) = loop_data.as_object_mut() {
-                        obj.insert(item_name.to_string(), item.clone());
-                        obj.insert(index_name.to_string(), JsonValue::Number(index.into()));
-                    }
-                    
-                    // 渲染节点（不包含 wx:for 属性）
-                    let mut new_node = WxmlNode::new_element(&node.tag_name);
-                    
-                    for (key, value) in &node.attributes {
-                        if key.starts_with("wx:") {
-                            continue;
-                        }
-                        let new_value = Self::interpolate(value, &loop_data);
-                        new_node.attributes.insert(key.clone(), new_value);
-                    }
-                    
-                    new_node.children = Self::render(&node.children, &loop_data);
-                    result.push(new_node);
-                }
+        let array = match Self::get_value(&array_name, data) {
+            Some(v) => v,
+            None => return Vec::new(),
+        };
+        
+        let arr = match array.as_array() {
+            Some(a) => a,
+            None => return Vec::new(),
+        };
+        
+        // 直接使用完整渲染，视口裁剪在绘制阶段处理
+        Self::render_for_loop_full(node, arr, item_name, index_name, data)
+    }
+    
+    /// 完整渲染 for 循环（不使用虚拟列表）
+    fn render_for_loop_full(node: &WxmlNode, arr: &[JsonValue], item_name: &str, index_name: &str, data: &JsonValue) -> Vec<WxmlNode> {
+        let mut result = Vec::new();
+        
+        for (index, item) in arr.iter().enumerate() {
+            // 创建循环上下文
+            let mut loop_data = data.clone();
+            if let Some(obj) = loop_data.as_object_mut() {
+                obj.insert(item_name.to_string(), item.clone());
+                obj.insert(index_name.to_string(), JsonValue::Number(index.into()));
             }
+            
+            // 渲染节点（不包含 wx:for 属性）
+            let mut new_node = WxmlNode::new_element(&node.tag_name);
+            
+            for (key, value) in &node.attributes {
+                if key.starts_with("wx:") {
+                    continue;
+                }
+                let new_value = Self::interpolate(value, &loop_data);
+                new_node.attributes.insert(key.clone(), new_value);
+            }
+            
+            new_node.children = Self::render(&node.children, &loop_data);
+            result.push(new_node);
         }
         
         result
@@ -162,6 +181,19 @@ impl TemplateEngine {
         // 数字字面量
         if let Ok(_) = expr.parse::<f64>() {
             return expr.to_string();
+        }
+        
+        // 处理 .length 属性（数组或字符串）
+        if expr.ends_with(".length") {
+            let base_path = &expr[..expr.len() - 7]; // 去掉 ".length"
+            if let Some(value) = Self::get_value(base_path, data) {
+                if let Some(arr) = value.as_array() {
+                    return arr.len().to_string();
+                } else if let Some(s) = value.as_str() {
+                    return s.chars().count().to_string();
+                }
+            }
+            return "0".to_string();
         }
         
         // 变量访问
@@ -245,7 +277,11 @@ impl TemplateEngine {
             JsonValue::Number(n) => n.to_string(),
             JsonValue::Bool(b) => b.to_string(),
             JsonValue::Null => "".to_string(),
-            _ => value.to_string(),
+            // 对于对象和数组，生成 JSON 字符串
+            // 将双引号替换为单引号，避免与 HTML 属性引号冲突
+            JsonValue::Object(_) | JsonValue::Array(_) => {
+                value.to_string().replace('"', "'")
+            }
         }
     }
     

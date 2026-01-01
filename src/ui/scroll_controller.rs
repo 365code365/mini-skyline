@@ -3,6 +3,15 @@
 /// 视口高度常量
 pub const LOGICAL_HEIGHT: u32 = 667;
 
+/// 滚动事件类型
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ScrollEvent {
+    /// 滚动到底部（回弹结束后触发）
+    ReachBottom,
+    /// 滚动到顶部/下拉刷新（回弹结束后触发）
+    ReachTop,
+}
+
 /// 微信小程序风格滚动控制器
 pub struct ScrollController {
     position: f32,
@@ -20,6 +29,16 @@ pub struct ScrollController {
     bounce_timer: f32,
     bounce_start_pos: f32,
     bounce_target_pos: f32,
+    
+    // 触底/触顶事件相关
+    /// 是否曾经超出底部边界（用于检测触底）
+    was_over_bottom: bool,
+    /// 是否曾经超出顶部边界（用于检测触顶/下拉刷新）
+    was_over_top: bool,
+    /// 触底阈值（距离底部多少像素时触发，微信默认50）
+    reach_bottom_distance: f32,
+    /// 是否已经触发过触底事件（防止重复触发）
+    reach_bottom_triggered: bool,
 }
 
 impl ScrollController {
@@ -39,6 +58,10 @@ impl ScrollController {
             bounce_timer: 0.0,
             bounce_start_pos: 0.0,
             bounce_target_pos: 0.0,
+            was_over_bottom: false,
+            was_over_top: false,
+            reach_bottom_distance: 50.0,
+            reach_bottom_triggered: false,
         }
     }
     
@@ -51,6 +74,8 @@ impl ScrollController {
             if self.position > self.max_scroll {
                 self.position = self.max_scroll;
             }
+            // 内容高度变化时重置触底状态
+            self.reach_bottom_triggered = false;
         }
     }
     
@@ -63,6 +88,9 @@ impl ScrollController {
         self.velocity = 0.0;
         self.velocity_samples.clear();
         self.velocity_samples.push((y, timestamp));
+        // 重置超出边界标记
+        self.was_over_bottom = false;
+        self.was_over_top = false;
     }
     
     pub fn update_drag(&mut self, y: f32, timestamp: u64) {
@@ -72,9 +100,13 @@ impl ScrollController {
         if new_pos < self.min_scroll {
             let overshoot = self.min_scroll - new_pos;
             new_pos = self.min_scroll - Self::rubber_band(overshoot, LOGICAL_HEIGHT as f32);
+            // 记录超出顶部
+            self.was_over_top = true;
         } else if new_pos > self.max_scroll {
             let overshoot = new_pos - self.max_scroll;
             new_pos = self.max_scroll + Self::rubber_band(overshoot, LOGICAL_HEIGHT as f32);
+            // 记录超出底部
+            self.was_over_bottom = true;
         }
         self.position = new_pos;
         self.velocity_samples.push((y, timestamp));
@@ -120,6 +152,7 @@ impl ScrollController {
         self.velocity = 0.0;
     }
     
+    /// 更新滚动状态，返回是否还在动画中
     pub fn update(&mut self, dt: f32) -> bool {
         if self.is_dragging { return false; }
         if self.is_bouncing {
@@ -155,6 +188,91 @@ impl ScrollController {
         false
     }
     
+    /// 更新滚动状态并检查事件，返回 (是否还在动画中, 可能的事件)
+    pub fn update_with_events(&mut self, dt: f32) -> (bool, Option<ScrollEvent>) {
+        if self.is_dragging { return (false, None); }
+        
+        if self.is_bouncing {
+            self.bounce_timer += dt;
+            let duration = 0.3;
+            if self.bounce_timer >= duration {
+                self.position = self.bounce_target_pos;
+                self.is_bouncing = false;
+                
+                // 回弹结束时检查事件
+                let event = self.check_bounce_end_event();
+                return (false, event);
+            }
+            let t = self.bounce_timer / duration;
+            let ease = 1.0 - (1.0 - t).powi(3);
+            self.position = self.bounce_start_pos + (self.bounce_target_pos - self.bounce_start_pos) * ease;
+            return (true, None);
+        }
+        
+        if self.is_decelerating {
+            // 正常惯性减速
+            let deceleration = 0.92_f32.powf(dt * 60.0);
+            self.velocity *= deceleration;
+            self.position += self.velocity * dt;
+            
+            // 检查是否到达边界
+            if self.position >= self.max_scroll {
+                self.position = self.max_scroll;
+                self.velocity = 0.0;
+                self.is_decelerating = false;
+                
+                // 惯性滚动到底部
+                if !self.reach_bottom_triggered {
+                    self.reach_bottom_triggered = true;
+                    return (false, Some(ScrollEvent::ReachBottom));
+                }
+                return (false, None);
+            }
+            
+            if self.position <= self.min_scroll {
+                self.position = self.min_scroll;
+                self.velocity = 0.0;
+                self.is_decelerating = false;
+                return (false, None);
+            }
+            
+            // 停止条件
+            if self.velocity.abs() < 3.0 {
+                self.velocity = 0.0;
+                self.is_decelerating = false;
+                
+                // 检查是否接近底部
+                if self.position >= self.max_scroll - self.reach_bottom_distance && !self.reach_bottom_triggered {
+                    self.reach_bottom_triggered = true;
+                    return (false, Some(ScrollEvent::ReachBottom));
+                }
+                return (false, None);
+            }
+            return (true, None);
+        }
+        (false, None)
+    }
+    
+    /// 回弹结束时检查是否触发事件
+    fn check_bounce_end_event(&mut self) -> Option<ScrollEvent> {
+        // 如果之前超出了顶部边界，现在回弹到顶部，触发 ReachTop
+        if self.was_over_top && self.bounce_target_pos <= self.min_scroll {
+            self.was_over_top = false;
+            return Some(ScrollEvent::ReachTop);
+        }
+        
+        // 如果之前超出了底部边界，现在回弹到底部，触发 ReachBottom
+        if self.was_over_bottom && self.bounce_target_pos >= self.max_scroll {
+            self.was_over_bottom = false;
+            if !self.reach_bottom_triggered {
+                self.reach_bottom_triggered = true;
+                return Some(ScrollEvent::ReachBottom);
+            }
+        }
+        
+        None
+    }
+    
     pub fn handle_scroll(&mut self, delta: f32, is_precise: bool) {
         // 忽略极微小的滚动事件
         if delta.abs() < 0.1 {
@@ -165,6 +283,8 @@ impl ScrollController {
         if self.max_scroll <= 0.0 {
             return;
         }
+        
+        let old_position = self.position;
         
         if is_precise {
             // Trackpad: 直接跟随手指移动，严格限制在边界内
@@ -184,9 +304,42 @@ impl ScrollController {
             self.is_decelerating = false;
             self.is_bouncing = false;
         }
+        
+        // 检查是否滚动到底部附近（用于触控板/鼠标滚轮）
+        if self.position >= self.max_scroll - self.reach_bottom_distance && old_position < self.max_scroll - self.reach_bottom_distance {
+            // 接近底部，但不在这里触发事件，让外部检查
+        }
+    }
+    
+    /// 检查是否应该触发触底事件（用于触控板/鼠标滚轮滚动）
+    pub fn check_reach_bottom(&mut self) -> bool {
+        if self.max_scroll <= 0.0 {
+            return false;
+        }
+        
+        if self.position >= self.max_scroll - self.reach_bottom_distance && !self.reach_bottom_triggered {
+            self.reach_bottom_triggered = true;
+            return true;
+        }
+        false
+    }
+    
+    /// 重置触底状态（当内容更新后调用）
+    pub fn reset_reach_bottom(&mut self) {
+        self.reach_bottom_triggered = false;
     }
     
     pub fn get_position(&self) -> f32 { self.position }
     pub fn get_max_scroll(&self) -> f32 { self.max_scroll }
     pub fn is_animating(&self) -> bool { self.is_decelerating || self.is_bouncing }
+    
+    /// 是否在顶部
+    pub fn is_at_top(&self) -> bool {
+        self.position <= self.min_scroll + 1.0
+    }
+    
+    /// 是否在底部
+    pub fn is_at_bottom(&self) -> bool {
+        self.position >= self.max_scroll - 1.0
+    }
 }

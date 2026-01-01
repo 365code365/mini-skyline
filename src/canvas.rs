@@ -60,6 +60,17 @@ impl Canvas {
     pub fn pixels(&self) -> &[Color] {
         &self.pixels
     }
+    
+    /// 获取像素数据可变引用
+    pub fn pixels_mut(&mut self) -> &mut [Color] {
+        &mut self.pixels
+    }
+    
+    /// 从另一个 Canvas 复制像素数据
+    pub fn copy_from(&mut self, src: &Canvas) {
+        let copy_len = self.pixels.len().min(src.pixels.len());
+        self.pixels[..copy_len].copy_from_slice(&src.pixels[..copy_len]);
+    }
 
     /// 清空画布
     pub fn clear(&mut self, color: Color) {

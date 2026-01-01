@@ -55,6 +55,11 @@ impl MiniAppWindow {
         let mut app = MiniApp::new(LOGICAL_WIDTH, LOGICAL_HEIGHT)?;
         app.init()?;
         
+        // 加载 app.js（全局 App 实例）
+        let app_js = include_str!("../../sample-app/app.js");
+        app.load_script(app_js)?;
+        println!("📱 App.js loaded");
+        
         let app_json = include_str!("../../sample-app/app.json");
         let app_config: AppConfig = serde_json::from_str(app_json)
             .map_err(|e| format!("Failed to parse app.json: {}", e))?;
@@ -214,9 +219,15 @@ impl MiniAppWindow {
         
         self.app.load_script(&page_info.js)?;
         
+        // 调用 onLoad
         let query_json = serde_json::to_string(&query).unwrap_or("{}".to_string());
         let load_code = format!("if(__currentPage && __currentPage.onLoad) __currentPage.onLoad({})", query_json);
         self.app.eval(&load_code).ok();
+        print_js_output(&self.app);
+        
+        // 调用 onShow
+        let show_code = "if(__currentPage && __currentPage.onShow) __currentPage.onShow()";
+        self.app.eval(show_code).ok();
         print_js_output(&self.app);
         
         let page_instance = PageInstance {
@@ -321,7 +332,6 @@ impl MiniAppWindow {
 
     fn render(&mut self) {
         // 获取页面数据
-        // 每次渲染都重新获取数据，因为数据可能已经变化
         let page_data = if let Ok(data_str) = self.app.eval("__getPageData()") {
             serde_json::from_str(&data_str).unwrap_or(json!({}))
         } else {
@@ -338,15 +348,19 @@ impl MiniAppWindow {
         let viewport_height = (LOGICAL_HEIGHT - if has_tabbar { TABBAR_HEIGHT } else { 0 }) as f32;
         let scroll_offset = self.scroll.get_position();
         
+        // 渲染主内容
         let mut content_height = 0.0f32;
         if let Some(canvas) = &mut self.canvas {
             canvas.clear(Color::from_hex(0xF5F5F5));
             if let Some(renderer) = &mut self.renderer {
-                content_height = renderer.render_with_scroll_and_viewport(canvas, &page.wxml_nodes, &page_data, &mut self.interaction, scroll_offset, viewport_height);
+                content_height = renderer.render_with_scroll_and_viewport(
+                    canvas, &page.wxml_nodes, &page_data, 
+                    &mut self.interaction, scroll_offset, viewport_height
+                );
             }
         }
         
-        let current_path = current_path.clone();  // 需要在这里 clone，因为后面要用
+        let current_path = current_path.clone();
         
         if content_height > 0.0 {
             self.scroll.update_content_height(content_height, viewport_height);
@@ -364,13 +378,17 @@ impl MiniAppWindow {
                     if let Some(canvas) = &mut self.canvas {
                         canvas.clear(Color::from_hex(0xF5F5F5));
                         if let Some(renderer) = &mut self.renderer {
-                            renderer.render_with_scroll_and_viewport(canvas, &page.wxml_nodes, &page_data, &mut self.interaction, scroll_offset, viewport_height);
+                            renderer.render_with_scroll_and_viewport(
+                                canvas, &page.wxml_nodes, &page_data, 
+                                &mut self.interaction, scroll_offset, viewport_height
+                            );
                         }
                     }
                 }
             }
         }
         
+        // 渲染 fixed 元素
         if let Some(page) = self.page_stack.last() {
             if let Some(fixed_canvas) = &mut self.fixed_canvas {
                 fixed_canvas.clear(Color::new(0, 0, 0, 0));
@@ -380,6 +398,7 @@ impl MiniAppWindow {
             }
         }
         
+        // 渲染 tabbar
         if has_tabbar {
             if self.is_custom_tabbar() {
                 self.render_custom_tabbar(&current_path);
@@ -572,8 +591,16 @@ impl MiniAppWindow {
         self.last_frame = now;
         
         let mut scroll_changed = false;
-        if self.scroll.update(dt) {
+        
+        // 使用带事件检测的更新方法
+        let (animating, event) = self.scroll.update_with_events(dt);
+        if animating {
             scroll_changed = true;
+        }
+        
+        // 处理页面滚动事件
+        if let Some(scroll_event) = event {
+            self.handle_scroll_event(scroll_event);
         }
         
         for controller in self.interaction.scroll_controllers.values_mut() {
@@ -586,6 +613,30 @@ impl MiniAppWindow {
         if scroll_changed {
             if let Some(window) = &self.window { window.request_redraw(); }
         }
+    }
+    
+    /// 处理滚动事件（触底/触顶）
+    fn handle_scroll_event(&mut self, event: mini_render::ui::scroll_controller::ScrollEvent) {
+        use mini_render::ui::scroll_controller::ScrollEvent;
+        
+        match event {
+            ScrollEvent::ReachBottom => {
+                println!("📜 onReachBottom triggered");
+                // 调用页面的 onReachBottom 方法
+                let call_code = "if(__currentPage && __currentPage.onReachBottom) __currentPage.onReachBottom()";
+                self.app.eval(call_code).ok();
+                print_js_output(&self.app);
+            }
+            ScrollEvent::ReachTop => {
+                println!("📜 onPullDownRefresh triggered");
+                // 调用页面的 onPullDownRefresh 方法
+                let call_code = "if(__currentPage && __currentPage.onPullDownRefresh) __currentPage.onPullDownRefresh()";
+                self.app.eval(call_code).ok();
+                print_js_output(&self.app);
+            }
+        }
+        
+        self.needs_redraw = true;
     }
 }
 
@@ -1050,6 +1101,12 @@ impl ApplicationHandler for MiniAppWindow {
             }
             
             WindowEvent::RedrawRequested => {
+                // 处理定时器
+                if let Err(e) = self.app.update() {
+                    eprintln!("Timer error: {}", e);
+                }
+                print_js_output(&self.app);
+                
                 self.update_scroll();
                 self.process_navigation();
                 
@@ -1064,7 +1121,9 @@ impl ApplicationHandler for MiniAppWindow {
                 // 2. 有视频在播放
                 // 3. scroll-view 内部在滚动（需要重新渲染 scroll-view 内容）
                 // 4. 有输入框聚焦（光标闪烁动画）
-                if self.needs_redraw || has_video || any_scrollview_scrolling || has_focused_input {
+                // 5. 页面正在滚动（需要渲染 tabbar 和 fixed 元素）
+                let is_scrolling = self.scroll.is_animating() || self.scroll.is_dragging;
+                if self.needs_redraw || has_video || any_scrollview_scrolling || has_focused_input || is_scrolling {
                     self.render();
                     self.needs_redraw = false;
                 }
@@ -1072,7 +1131,8 @@ impl ApplicationHandler for MiniAppWindow {
                 self.present();
                 
                 // 继续请求重绘的情况
-                if self.scroll.is_animating() || self.scroll.is_dragging || has_video || any_scrollview_scrolling || has_focused_input {
+                let has_timers = self.app.has_active_timers();
+                if is_scrolling || has_video || any_scrollview_scrolling || has_focused_input || has_timers {
                     if let Some(window) = &self.window { window.request_redraw(); }
                 }
             }

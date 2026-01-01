@@ -291,6 +291,21 @@ impl MiniAppApi {
                 options.complete && options.complete();
             };
             
+            // 下拉刷新相关
+            wx.startPullDownRefresh = function(options) {
+                options = options || {};
+                __native_print('[PullDownRefresh] start');
+                options.success && options.success();
+                options.complete && options.complete();
+            };
+            
+            wx.stopPullDownRefresh = function(options) {
+                options = options || {};
+                __native_print('[PullDownRefresh] stop');
+                options.success && options.success();
+                options.complete && options.complete();
+            };
+            
             function __getUIState() {
                 return JSON.stringify({
                     toast: __toastVisible ? __toastConfig : null,
@@ -445,14 +460,30 @@ impl MiniAppApi {
                     }
                     eventData = eventData || {};
                     
-                    // 转换 dataset 中的数字字符串为数字
+                    // 转换 dataset 中的值
                     var dataset = {};
                     for (var key in eventData) {
                         if (eventData.hasOwnProperty(key)) {
                             var val = eventData[key];
-                            // 尝试转换为数字
-                            if (typeof val === 'string' && /^-?\d+(\.\d+)?$/.test(val)) {
-                                dataset[key] = parseFloat(val);
+                            if (typeof val === 'string') {
+                                // 尝试解析 JSON 对象/数组（单引号格式）
+                                // 模板引擎将双引号替换为单引号以避免 HTML 属性冲突
+                                if ((val.startsWith('{') && val.endsWith('}')) || 
+                                    (val.startsWith('[') && val.endsWith(']'))) {
+                                    try {
+                                        // 将单引号替换回双引号后解析
+                                        var jsonStr = val.replace(/'/g, '"');
+                                        dataset[key] = JSON.parse(jsonStr);
+                                    } catch (e) {
+                                        dataset[key] = val;
+                                    }
+                                }
+                                // 尝试转换为数字
+                                else if (/^-?\d+(\.\d+)?$/.test(val)) {
+                                    dataset[key] = parseFloat(val);
+                                } else {
+                                    dataset[key] = val;
+                                }
                             } else {
                                 dataset[key] = val;
                             }

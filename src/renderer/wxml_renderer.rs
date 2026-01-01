@@ -24,6 +24,8 @@ pub struct EventBinding {
     pub handler: String,
     pub data: HashMap<String, String>,
     pub bounds: GeoRect,
+    /// 是否是 catch 事件（阻止冒泡）
+    pub is_catch: bool,
 }
 
 pub struct CachedLayout {
@@ -43,6 +45,8 @@ pub struct WxmlRenderer {
     cache: Option<CachedLayout>,
     /// Scroll-view 离屏缓存管理器
     scroll_cache: ScrollCacheManager,
+    /// 当前视口信息 (scroll_offset, viewport_height) - 用于虚拟列表
+    current_viewport: Option<(f32, f32)>,
 }
 
 impl WxmlRenderer {
@@ -64,6 +68,7 @@ impl WxmlRenderer {
             scale_factor,
             cache: None,
             scroll_cache: ScrollCacheManager::new(),
+            current_viewport: None,
         }
     }
 
@@ -71,17 +76,24 @@ impl WxmlRenderer {
         &mut self,
         nodes: &[WxmlNode],
         data: &JsonValue,
+        viewport: Option<(f32, f32)>,
     ) {
+        // 检查视口是否变化（用于虚拟列表）
+        let viewport_changed = self.current_viewport != viewport;
+        
         if let Some(cache) = &self.cache {
-            if cache.data == *data {
+            if cache.data == *data && !viewport_changed {
                 return; // Cache hit!
             }
         }
         
+        // 更新当前视口
+        self.current_viewport = viewport;
+        
         // 数据变化，标记所有 scroll-view 缓存为脏
         self.scroll_cache.mark_all_dirty();
         
-        let rendered = crate::parser::TemplateEngine::render(nodes, data);
+        let rendered = crate::parser::TemplateEngine::render_with_virtual_list(nodes, data, viewport);
         let mut taffy = TaffyTree::new();
         
         let mut render_nodes = Vec::new();
@@ -151,7 +163,8 @@ impl WxmlRenderer {
         scroll_offset: f32,
         viewport_height: f32,
     ) -> f32 {
-        self.update_layout_if_needed(nodes, data);
+        // 传递视口信息给模板引擎，用于虚拟列表优化
+        self.update_layout_if_needed(nodes, data, Some((scroll_offset, viewport_height)));
         
         self.event_bindings.clear();
         // 不清除交互元素，保留 scroll controller 状态
@@ -181,7 +194,8 @@ impl WxmlRenderer {
         interaction: &mut InteractionManager,
         _viewport_height: f32, // Ignore content viewport height, use full screen height for fixed elements
     ) {
-        self.update_layout_if_needed(nodes, data);
+        // 使用已缓存的视口信息，不重新计算布局
+        self.update_layout_if_needed(nodes, data, self.current_viewport);
         
         if let Some(cache) = self.cache.take() {
             // 收集 fixed 元素
@@ -282,12 +296,13 @@ impl WxmlRenderer {
         }
         
         // 记录事件绑定
-        for (et, handler, data) in &node.events {
+        for (et, handler, data, is_catch) in &node.events {
             self.event_bindings.push(EventBinding {
                 event_type: et.clone(),
                 handler: handler.clone(),
                 data: data.clone(),
                 bounds: logical_bounds,
+                is_catch: *is_catch,
             });
         }
     }
@@ -397,12 +412,13 @@ impl WxmlRenderer {
         }
         
         // 记录事件绑定
-        for (et, handler, data) in &node.events {
+        for (et, handler, data, is_catch) in &node.events {
             self.event_bindings.push(EventBinding {
                 event_type: et.clone(),
                 handler: handler.clone(),
                 data: data.clone(),
                 bounds: logical_bounds,
+                is_catch: *is_catch,
             });
         }
     }
@@ -565,9 +581,7 @@ impl WxmlRenderer {
         let y = oy + layout.location.y;
         let w = layout.size.width;
         let h = layout.size.height;
-        
-        // 不使用 viewport culling，渲染整个内容到 canvas
-        // 滚动在 present_to_buffer 中处理
+        // 渲染整个内容到 canvas，滚动在 present_to_buffer 中处理
         
         let logical_bounds = GeoRect::new(x / sf, y / sf, w / sf, h / sf);
         
@@ -652,32 +666,31 @@ impl WxmlRenderer {
 
         // 绘制组件 - 特殊处理 input 和 button 组件
         match node.tag.as_str() {
-            "input" | "textarea" => {
-                let focused = interaction.focused_input.as_ref()
-                    .map(|f| f.id == component_id)
-                    .unwrap_or(false);
-                let (cursor_pos, selection) = if focused {
-                    let f = interaction.focused_input.as_ref().unwrap();
-                    (f.cursor_pos, f.get_selection_range())
-                } else {
-                    (0, None)
-                };
-                InputComponent::draw_with_selection(
-                    &node_to_draw, canvas, self.text_renderer.as_ref(), 
-                    x, y, w, h, sf, focused, cursor_pos, selection
-                );
-                
-                // 更新 text_offset（用于点击位置计算）
-                if focused {
-                    if let Some(tr) = self.text_renderer.as_ref() {
-                        let font_size = node_to_draw.style.font_size * sf;
-                        let padding_left = 12.0 * sf;
-                        let padding_right = 12.0 * sf;
-                        let available_width = w - padding_left - padding_right;
-                        
-                        let text_width = tr.measure_text(&node_to_draw.text, font_size);
-                        let mut text_offset = 0.0;
-                        
+                "input" | "textarea" => {
+                    let focused = interaction.focused_input.as_ref()
+                        .map(|f| f.id == component_id)
+                        .unwrap_or(false);
+                    let (cursor_pos, selection) = if focused {
+                        let f = interaction.focused_input.as_ref().unwrap();
+                        (f.cursor_pos, f.get_selection_range())
+                    } else {
+                        (0, None)
+                    };
+                    InputComponent::draw_with_selection(
+                        &node_to_draw, canvas, self.text_renderer.as_ref(), 
+                        x, y, w, h, sf, focused, cursor_pos, selection
+                    );
+                    
+                    // 更新 text_offset（用于点击位置计算）
+                    if focused {
+                        if let Some(tr) = self.text_renderer.as_ref() {
+                            let font_size = node_to_draw.style.font_size * sf;
+                            let padding_left = 12.0 * sf;
+                            let padding_right = 12.0 * sf;
+                            let available_width = w - padding_left - padding_right;
+                            
+                            let text_width = tr.measure_text(&node_to_draw.text, font_size);
+                            let mut text_offset = 0.0;
                         if text_width > available_width {
                             let cursor_text: String = node_to_draw.text.chars().take(cursor_pos).collect();
                             let cursor_x_in_text = tr.measure_text(&cursor_text, font_size);
@@ -784,12 +797,13 @@ impl WxmlRenderer {
         }
 
         // 记录事件绑定
-        for (et, h, d) in &node.events {
+        for (et, h, d, is_catch) in &node.events {
             self.event_bindings.push(EventBinding { 
                 event_type: et.clone(), 
                 handler: h.clone(), 
                 data: d.clone(), 
-                bounds: logical_bounds 
+                bounds: logical_bounds,
+                is_catch: *is_catch,
             });
         }
     }
@@ -917,12 +931,13 @@ impl WxmlRenderer {
         }
         
         // 记录事件绑定
-        for (et, h, d) in &node.events {
+        for (et, h, d, is_catch) in &node.events {
             self.event_bindings.push(EventBinding {
                 event_type: et.clone(),
                 handler: h.clone(),
                 data: d.clone(),
                 bounds: logical_bounds,
+                is_catch: *is_catch,
             });
         }
     }
@@ -950,9 +965,6 @@ impl WxmlRenderer {
         let y = oy + layout.location.y;
         let w = layout.size.width;
         let h = layout.size.height;
-
-        // 不使用 viewport culling，渲染整个内容到 canvas
-        // 滚动在 present_to_buffer 中处理
         
         let logical_bounds = GeoRect::new(x / sf, y / sf, w / sf, h / sf);
 
@@ -1048,48 +1060,48 @@ impl WxmlRenderer {
 
         // 绘制组件 - 特殊处理 input、button 和有点击事件的 view 组件
         match node.tag.as_str() {
-            "input" | "textarea" => {
-                let focused = interaction.focused_input.as_ref()
-                    .map(|f| f.id == component_id)
-                    .unwrap_or(false);
-                let (cursor_pos, selection) = if focused {
-                    let f = interaction.focused_input.as_ref().unwrap();
-                    (f.cursor_pos, f.get_selection_range())
-                } else {
-                    (0, None)
-                };
-                InputComponent::draw_with_selection(
-                    &node_to_draw, canvas, self.text_renderer.as_ref(), 
-                    x, y, w, h, sf, focused, cursor_pos, selection
-                );
-                
-                // 更新 text_offset（用于点击位置计算）
-                if focused {
-                    if let Some(tr) = self.text_renderer.as_ref() {
-                        let font_size = node_to_draw.style.font_size * sf;
-                        let padding_left = 12.0 * sf;
-                        let padding_right = 12.0 * sf;
-                        let available_width = w - padding_left - padding_right;
-                        
-                        let text_width = tr.measure_text(&node_to_draw.text, font_size);
-                        let mut text_offset = 0.0;
-                        
-                        if text_width > available_width {
-                            let cursor_text: String = node_to_draw.text.chars().take(cursor_pos).collect();
-                            let cursor_x_in_text = tr.measure_text(&cursor_text, font_size);
+                "input" | "textarea" => {
+                    let focused = interaction.focused_input.as_ref()
+                        .map(|f| f.id == component_id)
+                        .unwrap_or(false);
+                    let (cursor_pos, selection) = if focused {
+                        let f = interaction.focused_input.as_ref().unwrap();
+                        (f.cursor_pos, f.get_selection_range())
+                    } else {
+                        (0, None)
+                    };
+                    InputComponent::draw_with_selection(
+                        &node_to_draw, canvas, self.text_renderer.as_ref(), 
+                        x, y, w, h, sf, focused, cursor_pos, selection
+                    );
+                    
+                    // 更新 text_offset（用于点击位置计算）
+                    if focused {
+                        if let Some(tr) = self.text_renderer.as_ref() {
+                            let font_size = node_to_draw.style.font_size * sf;
+                            let padding_left = 12.0 * sf;
+                            let padding_right = 12.0 * sf;
+                            let available_width = w - padding_left - padding_right;
                             
-                            if cursor_x_in_text > available_width {
-                                text_offset = available_width - cursor_x_in_text - font_size;
+                            let text_width = tr.measure_text(&node_to_draw.text, font_size);
+                            let mut text_offset = 0.0;
+                            
+                            if text_width > available_width {
+                                let cursor_text: String = node_to_draw.text.chars().take(cursor_pos).collect();
+                                let cursor_x_in_text = tr.measure_text(&cursor_text, font_size);
+                                
+                                if cursor_x_in_text > available_width {
+                                    text_offset = available_width - cursor_x_in_text - font_size;
+                                }
                             }
-                        }
-                        
-                        if let Some(input) = &mut interaction.focused_input {
-                            input.text_offset = text_offset;
+                            
+                            if let Some(input) = &mut interaction.focused_input {
+                                input.text_offset = text_offset;
+                            }
                         }
                     }
                 }
-            }
-            "button" => {
+                "button" => {
                 let pressed = interaction.is_button_pressed(&component_id);
                 ButtonComponent::draw_with_state(
                     &node_to_draw, canvas, self.text_renderer.as_ref(),
@@ -1147,12 +1159,13 @@ impl WxmlRenderer {
             }
         }
 
-        for (et, h, d) in &node.events {
+        for (et, h, d, is_catch) in &node.events {
             self.event_bindings.push(EventBinding { 
                 event_type: et.clone(), 
                 handler: h.clone(), 
                 data: d.clone(), 
-                bounds: logical_bounds 
+                bounds: logical_bounds,
+                is_catch: *is_catch,
             });
         }
     }
@@ -1345,12 +1358,13 @@ impl WxmlRenderer {
             }
         }
 
-        for (et, h, d) in &node.events {
+        for (et, h, d, is_catch) in &node.events {
             self.event_bindings.push(EventBinding { 
                 event_type: et.clone(), 
                 handler: h.clone(), 
                 data: d.clone(), 
-                bounds: logical_bounds 
+                bounds: logical_bounds,
+                is_catch: *is_catch,
             });
         }
     }
@@ -1378,12 +1392,13 @@ impl WxmlRenderer {
             }
         }
 
-        for (et, h, d) in &node.events {
+        for (et, h, d, is_catch) in &node.events {
             self.event_bindings.push(EventBinding { 
                 event_type: et.clone(), 
                 handler: h.clone(), 
                 data: d.clone(), 
-                bounds: logical_bounds 
+                bounds: logical_bounds,
+                is_catch: *is_catch,
             });
         }
     }

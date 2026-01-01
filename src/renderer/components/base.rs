@@ -15,7 +15,8 @@ pub struct RenderNode {
     pub taffy_node: NodeId,
     pub style: NodeStyle,
     pub children: Vec<RenderNode>,
-    pub events: Vec<(String, String, HashMap<String, String>)>,
+    /// 事件绑定: (event_type, handler, data, is_catch)
+    pub events: Vec<(String, String, HashMap<String, String>, bool)>,
 }
 
 /// 节点样式
@@ -218,7 +219,8 @@ pub fn parse_color_str(s: &str) -> Option<Color> {
 }
 
 /// 提取事件绑定
-pub fn extract_events(node: &WxmlNode) -> Vec<(String, String, HashMap<String, String>)> {
+/// 返回 (event_type, handler, data, is_catch)
+pub fn extract_events(node: &WxmlNode) -> Vec<(String, String, HashMap<String, String>, bool)> {
     let mut events = vec![];
     for attr in ["bindtap", "catchtap", "bindchange", "bindinput", "bindblur", "bindfocus", "bindconfirm", "bindlinechange"] {
         if let Some(h) = node.get_attr(attr) {
@@ -241,8 +243,9 @@ pub fn extract_events(node: &WxmlNode) -> Vec<(String, String, HashMap<String, S
                     d.insert("password".into(), v.into());
                 }
             }
+            let is_catch = attr.starts_with("catch");
             let event_type = attr.trim_start_matches("bind").trim_start_matches("catch");
-            events.push((event_type.into(), h.into(), d));
+            events.push((event_type.into(), h.into(), d, is_catch));
         }
     }
     events

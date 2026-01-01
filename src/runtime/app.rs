@@ -102,6 +102,11 @@ impl MiniApp {
         self.bridge.dispatch_event(&Event::AppHide).ok();
     }
     
+    /// 检查是否有活动定时器
+    pub fn has_active_timers(&self) -> bool {
+        !self.timers.is_empty()
+    }
+    
     /// 更新一帧
     pub fn update(&mut self) -> Result<(), String> {
         let now = Instant::now();

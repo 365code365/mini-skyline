@@ -49,6 +49,45 @@ Page({
     console.log('📊 新品推荐数量:', this.data.newProducts.length);
   },
 
+  onReachBottom: function() {
+    console.log('📜 触底事件触发 - onReachBottom');
+    var self = this;
+    var currentProducts = this.data.newProducts;
+    var lastId = currentProducts[currentProducts.length - 1].id;
+    
+    // 生成新商品
+    var moreProducts = [];
+    var productNames = ['无线耳机', '智能手表', '平板电脑', '游戏手柄', '摄像头', '路由器', '移动硬盘', '显卡', 'CPU', '主板'];
+    var productDescs = ['高性能 热销款', '新品上市 限时优惠', '爆款推荐', '品质保证', '厂家直销'];
+    
+    for (var i = 1; i <= 10; i++) {
+      var newId = lastId + i;
+      moreProducts.push({
+        id: newId,
+        name: productNames[(newId - 1) % productNames.length] + ' ' + newId,
+        desc: productDescs[(newId - 1) % productDescs.length],
+        price: Math.floor(Math.random() * 2000) + 99
+      });
+    }
+    
+    // 合并商品列表
+    var allProducts = currentProducts.concat(moreProducts);
+    this.setData({ newProducts: allProducts });
+    console.log('📦 加载更多商品，当前总数:', allProducts.length);
+    wx.showToast({ title: '加载了10件商品', icon: 'none' });
+  },
+
+  onPullDownRefresh: function() {
+    console.log('🔄 下拉刷新触发 - onPullDownRefresh');
+    // 可以在这里刷新数据
+    wx.showToast({ title: '刷新中...', icon: 'loading' });
+    // 模拟刷新完成
+    setTimeout(function() {
+      wx.stopPullDownRefresh();
+      console.log('✅ 刷新完成');
+    }, 1000);
+  },
+
   onCategoryTap: function(e) {
     var id = e.currentTarget.dataset.id;
     console.log('📂 点击分类:', id);
