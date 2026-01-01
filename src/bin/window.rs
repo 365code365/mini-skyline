@@ -741,7 +741,33 @@ impl ApplicationHandler for MiniAppWindow {
                 self.mouse_pos = (x, y);
                 let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
                 
-                if self.interaction.is_dragging_slider() {
+                // 处理文本选择拖动
+                if self.interaction.is_selecting() {
+                    if let Some(focused) = &self.interaction.focused_input {
+                        if let Some(tr) = &self.text_renderer {
+                            let sf = self.scale_factor as f32;
+                            let font_size = 16.0 * sf;
+                            let padding_left = 12.0 * sf;
+                            let bounds = focused.bounds;
+                            let click_x = ((x - bounds.x) * sf).max(0.0);
+                            
+                            let mut char_widths = Vec::new();
+                            for c in focused.value.chars() {
+                                let char_str = c.to_string();
+                                let width = tr.measure_text(&char_str, font_size);
+                                char_widths.push(width);
+                            }
+                            
+                            let cursor_pos = mini_render::ui::interaction::calculate_cursor_position(
+                                &focused.value, &char_widths, click_x, padding_left
+                            );
+                            
+                            self.interaction.update_text_selection(cursor_pos);
+                            self.needs_redraw = true;
+                            if let Some(w) = &self.window { w.request_redraw(); }
+                        }
+                    }
+                } else if self.interaction.is_dragging_slider() {
                     if let Some(result) = self.interaction.handle_mouse_move(x, y + self.scroll.get_position()) {
                         handle_interaction_result(
                             &result,
@@ -846,6 +872,43 @@ impl ApplicationHandler for MiniAppWindow {
                         
                         let actual_y = y + self.scroll.get_position();
                         
+                        // 检查是否点击在已聚焦的输入框内（用于文本选择）
+                        if let Some(focused) = &self.interaction.focused_input {
+                            let bounds = focused.bounds;
+                            // 检查点击是否在输入框内（考虑 fixed 和普通元素）
+                            let click_in_input = (x >= bounds.x && x <= bounds.x + bounds.width &&
+                                                  y >= bounds.y - self.scroll.get_position() && 
+                                                  y <= bounds.y + bounds.height - self.scroll.get_position()) ||
+                                                 (x >= bounds.x && x <= bounds.x + bounds.width &&
+                                                  actual_y >= bounds.y && actual_y <= bounds.y + bounds.height);
+                            
+                            if click_in_input {
+                                // 计算光标位置并开始选择
+                                if let Some(tr) = &self.text_renderer {
+                                    let sf = self.scale_factor as f32;
+                                    let font_size = 16.0 * sf;
+                                    let padding_left = 12.0 * sf;
+                                    let click_x = (x - bounds.x) * sf;
+                                    
+                                    let mut char_widths = Vec::new();
+                                    for c in focused.value.chars() {
+                                        let char_str = c.to_string();
+                                        let width = tr.measure_text(&char_str, font_size);
+                                        char_widths.push(width);
+                                    }
+                                    
+                                    let cursor_pos = mini_render::ui::interaction::calculate_cursor_position(
+                                        &focused.value, &char_widths, click_x, padding_left
+                                    );
+                                    
+                                    self.interaction.begin_text_selection(cursor_pos);
+                                    self.needs_redraw = true;
+                                    if let Some(w) = &self.window { w.request_redraw(); }
+                                    return;
+                                }
+                            }
+                        }
+                        
                         // 首先检查 fixed 元素（使用视口坐标）
                         if let Some(element) = self.interaction.hit_test(x, y) {
                             let element = element.clone();
@@ -932,6 +995,16 @@ impl ApplicationHandler for MiniAppWindow {
                     ElementState::Released => {
                         self.interaction.clear_button_pressed();
                         
+                        // 结束文本选择
+                        let was_selecting = self.interaction.is_selecting();
+                        if was_selecting {
+                            self.interaction.end_text_selection();
+                            self.needs_redraw = true;
+                            if let Some(w) = &self.window { w.request_redraw(); }
+                            // 如果是文本选择，不触发点击事件
+                            return;
+                        }
+                        
                         if let Some(id) = self.interaction.dragging_scroll_area.take() {
                             if let Some(controller) = self.interaction.get_scroll_controller_mut(&id) {
                                 controller.end_drag();
@@ -976,6 +1049,7 @@ impl ApplicationHandler for MiniAppWindow {
                 self.process_navigation();
                 
                 let has_video = mini_render::renderer::components::has_playing_video();
+                let has_focused_input = self.interaction.has_focused_input();
                 
                 // 检查是否有 scroll-view 在滚动（需要重新渲染）
                 let any_scrollview_scrolling = self.interaction.scroll_controllers.values().any(|c| c.is_animating() || c.is_dragging);
@@ -984,7 +1058,8 @@ impl ApplicationHandler for MiniAppWindow {
                 // 1. needs_redraw 为 true（数据变化、点击等）
                 // 2. 有视频在播放
                 // 3. scroll-view 内部在滚动（需要重新渲染 scroll-view 内容）
-                if self.needs_redraw || has_video || any_scrollview_scrolling {
+                // 4. 有输入框聚焦（光标闪烁动画）
+                if self.needs_redraw || has_video || any_scrollview_scrolling || has_focused_input {
                     self.render();
                     self.needs_redraw = false;
                 }
@@ -992,7 +1067,7 @@ impl ApplicationHandler for MiniAppWindow {
                 self.present();
                 
                 // 继续请求重绘的情况
-                if self.scroll.is_animating() || self.scroll.is_dragging || has_video || any_scrollview_scrolling {
+                if self.scroll.is_animating() || self.scroll.is_dragging || has_video || any_scrollview_scrolling || has_focused_input {
                     if let Some(window) = &self.window { window.request_redraw(); }
                 }
             }

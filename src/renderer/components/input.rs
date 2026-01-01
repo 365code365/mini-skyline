@@ -18,6 +18,25 @@ use crate::parser::wxml::WxmlNode;
 use crate::text::TextRenderer;
 use crate::{Canvas, Color, Paint, PaintStyle, Path, Rect as GeoRect};
 use taffy::prelude::*;
+use std::time::Instant;
+use std::sync::OnceLock;
+
+/// 光标闪烁周期（毫秒）
+const CURSOR_BLINK_INTERVAL_MS: u64 = 530;
+
+/// 获取程序启动时间（用于计算光标闪烁）
+static START_TIME: OnceLock<Instant> = OnceLock::new();
+
+fn get_start_time() -> &'static Instant {
+    START_TIME.get_or_init(Instant::now)
+}
+
+/// 判断光标是否应该显示（闪烁效果）
+fn should_show_cursor() -> bool {
+    let elapsed = get_start_time().elapsed().as_millis() as u64;
+    // 每个周期的前半段显示光标
+    (elapsed / CURSOR_BLINK_INTERVAL_MS) % 2 == 0
+}
 
 pub struct InputComponent;
 
@@ -236,6 +255,7 @@ impl InputComponent {
         // 计算文本位置
         let font_size = style.font_size * sf;
         let padding_left = 12.0 * sf; // 默认左边距
+        let padding_right = 12.0 * sf; // 默认右边距
         let text_x = x + padding_left;
         
         // 根据 text-align 和 vertical-align 计算位置
@@ -246,6 +266,14 @@ impl InputComponent {
         };
         
         if let Some(tr) = text_renderer {
+            // 设置裁剪区域，防止文本溢出输入框
+            canvas.save();
+            let clip_x = x + padding_left;
+            let clip_y = y;
+            let clip_w = w - padding_left - padding_right;
+            let clip_h = h;
+            canvas.clip_rect(GeoRect::new(clip_x, clip_y, clip_w, clip_h));
+            
             // 绘制选中背景
             if let Some((sel_start, sel_end)) = selection {
                 if sel_start != sel_end && focused {
@@ -269,23 +297,52 @@ impl InputComponent {
             let paint = Paint::new().with_color(color).with_style(PaintStyle::Fill);
             
             if !node.text.is_empty() {
-                // 根据 text-align 调整 x 位置
                 let text_width = tr.measure_text(&node.text, font_size);
-                let available_width = w - padding_left * 2.0;
+                let available_width = w - padding_left - padding_right;
                 
+                // 计算文本偏移，当文本超出时，让光标位置可见
+                let mut text_offset = 0.0;
+                if focused && text_width > available_width {
+                    // 计算光标位置
+                    let cursor_text: String = node.text.chars().take(cursor_pos).collect();
+                    let cursor_x_in_text = tr.measure_text(&cursor_text, font_size);
+                    
+                    // 如果光标超出可见区域右边，向左滚动
+                    if cursor_x_in_text > available_width {
+                        text_offset = available_width - cursor_x_in_text - font_size; // 留一个字符的空间
+                    }
+                }
+                
+                // 根据 text-align 调整 x 位置
                 let final_x = match style.text_align {
-                    TextAlign::Center => text_x + (available_width - text_width) / 2.0,
-                    TextAlign::Right => text_x + available_width - text_width,
-                    _ => text_x, // Left
+                    TextAlign::Center if text_width <= available_width => {
+                        text_x + (available_width - text_width) / 2.0
+                    }
+                    TextAlign::Right if text_width <= available_width => {
+                        text_x + available_width - text_width
+                    }
+                    _ => text_x + text_offset, // Left 或文本超出时
                 };
                 
                 tr.draw_text(canvas, &node.text, final_x, text_y, font_size, &paint);
             }
             
-            // 绘制光标（只在没有选中或选中范围为空时显示）
-            if focused && selection.map(|(s, e)| s == e).unwrap_or(true) {
+            // 绘制光标（只在没有选中或选中范围为空时显示，带闪烁效果）
+            if focused && selection.map(|(s, e)| s == e).unwrap_or(true) && should_show_cursor() {
                 let cursor_text: String = node.text.chars().take(cursor_pos).collect();
-                let cursor_x = text_x + tr.measure_text(&cursor_text, font_size);
+                let text_width = tr.measure_text(&node.text, font_size);
+                let available_width = w - padding_left - padding_right;
+                
+                // 计算文本偏移（与上面保持一致）
+                let mut text_offset = 0.0;
+                if text_width > available_width {
+                    let cursor_x_in_text = tr.measure_text(&cursor_text, font_size);
+                    if cursor_x_in_text > available_width {
+                        text_offset = available_width - cursor_x_in_text - font_size;
+                    }
+                }
+                
+                let cursor_x = text_x + tr.measure_text(&cursor_text, font_size) + text_offset;
                 let cursor_y1 = y + (h - font_size) / 2.0;
                 let cursor_y2 = cursor_y1 + font_size;
                 
@@ -298,6 +355,9 @@ impl InputComponent {
                 cursor_path.line_to(cursor_x, cursor_y2);
                 canvas.draw_path(&cursor_path, &cursor_paint);
             }
+            
+            // 恢复裁剪区域
+            canvas.restore();
         }
     }
 }

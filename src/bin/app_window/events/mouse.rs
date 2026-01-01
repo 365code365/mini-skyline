@@ -186,8 +186,12 @@ pub fn handle_content_click(
         if let InteractionResult::Focus { click_x, .. } = &result {
             if let Some(focused) = &interaction.focused_input {
                 if let Some(tr) = text_renderer {
-                    let font_size = (16.0 * scale_factor) as f32;
-                    let padding_left = (12.0 * scale_factor) as f32;
+                    // click_x 是逻辑坐标（相对于输入框左边缘）
+                    // 需要转换为物理坐标来匹配 measure_text 的结果
+                    let sf = scale_factor as f32;
+                    let font_size = 16.0 * sf;
+                    let padding_left = 12.0 * sf;
+                    let click_x_physical = *click_x * sf;
                     
                     let mut char_widths = Vec::new();
                     for c in focused.value.chars() {
@@ -197,7 +201,7 @@ pub fn handle_content_click(
                     }
                     
                     use mini_render::ui::interaction::calculate_cursor_position;
-                    let cursor_pos = calculate_cursor_position(&focused.value, &char_widths, *click_x as f32, padding_left);
+                    let cursor_pos = calculate_cursor_position(&focused.value, &char_widths, click_x_physical, padding_left);
                     
                     if let Some(input) = &mut interaction.focused_input {
                         input.cursor_pos = cursor_pos;

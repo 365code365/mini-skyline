@@ -177,6 +177,10 @@ pub struct InteractionManager {
     pub click_animations: Vec<ClickAnimation>,
     /// 当前页面的交互元素
     elements: Vec<InteractiveElement>,
+    /// 是否正在拖动选择文本
+    pub is_selecting_text: bool,
+    /// 选择起始位置（用于拖动选择）
+    pub selection_anchor: Option<usize>,
 }
 
 impl InteractionManager {
@@ -190,6 +194,8 @@ impl InteractionManager {
             elements: Vec::new(),
             scroll_controllers: HashMap::new(),
             dragging_scroll_area: None,
+            is_selecting_text: false,
+            selection_anchor: None,
         }
     }
     
@@ -346,6 +352,7 @@ impl InteractionManager {
                     id: element.id,
                     bounds: element.bounds,
                     click_x,
+                    is_fixed: element.is_fixed,
                 })
             }
             InteractionType::Button => {
@@ -636,6 +643,50 @@ impl InteractionManager {
         self.pressed_button = None;
         self.click_animations.clear();
         self.elements.clear();
+        self.is_selecting_text = false;
+        self.selection_anchor = None;
+    }
+    
+    /// 开始文本选择（鼠标按下时调用）
+    pub fn begin_text_selection(&mut self, cursor_pos: usize) {
+        if let Some(input) = &mut self.focused_input {
+            self.is_selecting_text = true;
+            self.selection_anchor = Some(cursor_pos);
+            input.selection_start = Some(cursor_pos);
+            input.selection_end = Some(cursor_pos);
+            input.cursor_pos = cursor_pos;
+        }
+    }
+    
+    /// 更新文本选择（鼠标移动时调用）
+    pub fn update_text_selection(&mut self, cursor_pos: usize) {
+        if self.is_selecting_text {
+            if let Some(anchor) = self.selection_anchor {
+                if let Some(input) = &mut self.focused_input {
+                    input.selection_start = Some(anchor);
+                    input.selection_end = Some(cursor_pos);
+                    input.cursor_pos = cursor_pos;
+                }
+            }
+        }
+    }
+    
+    /// 结束文本选择（鼠标释放时调用）
+    pub fn end_text_selection(&mut self) {
+        self.is_selecting_text = false;
+        // 如果选择范围为空，清除选择
+        if let Some(input) = &mut self.focused_input {
+            if let (Some(start), Some(end)) = (input.selection_start, input.selection_end) {
+                if start == end {
+                    input.clear_selection();
+                }
+            }
+        }
+    }
+    
+    /// 是否正在选择文本
+    pub fn is_selecting(&self) -> bool {
+        self.is_selecting_text
     }
     
     /// 设置按钮按下状态
@@ -717,7 +768,7 @@ pub enum InteractionResult {
     Select { id: String, value: String },
     SliderChange { id: String, value: i32 },
     SliderEnd { id: String },
-    Focus { id: String, bounds: Rect, click_x: f32 },
+    Focus { id: String, bounds: Rect, click_x: f32, is_fixed: bool },
     InputChange { id: String, value: String },
     InputBlur { id: String, value: String },
     ButtonClick { id: String, bounds: Rect },

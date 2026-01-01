@@ -29,18 +29,35 @@ pub fn handle_interaction_result(
         InteractionResult::SliderEnd { id } => {
             println!("🎚️ Slider {} released", id);
         }
-        InteractionResult::Focus { id, bounds, click_x: _ } => {
-            println!("📝 Focus: {} at ({:.0}, {:.0})", id, bounds.x, bounds.y);
+        InteractionResult::Focus { id, bounds, click_x: _, is_fixed } => {
+            println!("📝 Focus: {} at ({:.0}, {:.0}, {:.0}x{:.0}) fixed={}", id, bounds.x, bounds.y, bounds.width, bounds.height, is_fixed);
             if let Some(window) = window {
                 window.set_ime_allowed(true);
                 let sf = scale_factor;
-                let ime_x = (bounds.x * sf as f32) as f64;
-                let ime_y = ((bounds.y - scroll_position + bounds.height + 5.0) * sf as f32) as f64;
-                let ime_w = (bounds.width * sf as f32) as f64;
-                let ime_h = (bounds.height * sf as f32) as f64;
+                
+                // 计算 IME 位置
+                // 如果是 fixed 元素，bounds.y 已经是视口坐标，不需要减去 scroll_position
+                // 如果是普通元素，bounds.y 是内容坐标，需要减去 scroll_position 得到视口坐标
+                let viewport_y = if *is_fixed {
+                    bounds.y
+                } else {
+                    bounds.y - scroll_position
+                };
+                
+                // macOS IME: position 是光标位置，size 是光标区域
+                // 将光标位置设置在输入框内部底部，这样候选框会紧贴输入框下方
+                let padding_left = 12.0 * sf as f32; // 与 input.rs 中的 padding 一致
+                let ime_x = ((bounds.x + padding_left) * sf as f32) as f64;
+                // 光标 y 位置设置在输入框底部边缘
+                let ime_y = ((viewport_y + bounds.height) * sf as f32) as f64;
+                
+                println!("📝 IME cursor: ({:.0}, {:.0})", ime_x, ime_y);
+                
+                // size 设置为光标大小（1x字体高度）
+                let cursor_height = (16.0 * sf) as f64; // 默认字体大小
                 window.set_ime_cursor_area(
                     winit::dpi::PhysicalPosition::new(ime_x, ime_y),
-                    winit::dpi::PhysicalSize::new(ime_w, ime_h),
+                    winit::dpi::PhysicalSize::new(1.0, cursor_height),
                 );
             }
         }
