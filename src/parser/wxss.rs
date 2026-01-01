@@ -330,6 +330,13 @@ impl WxssParser {
             }
         }
         
+        // 渐变值 - 提取第一个颜色作为 fallback
+        if value.starts_with("linear-gradient") || value.starts_with("radial-gradient") {
+            if let Some(color) = Self::parse_gradient_fallback(value) {
+                return StyleValue::Color(color);
+            }
+        }
+        
         // 命名颜色
         if let Some(color) = Self::parse_named_color(value) {
             return StyleValue::Color(color);
@@ -437,6 +444,48 @@ impl WxssParser {
         };
         
         Some(Color::new(r, g, b, a))
+    }
+    
+    /// 解析渐变值，提取第一个颜色作为 fallback
+    /// 支持格式：linear-gradient(135deg, #ff6b35 0%, #ff8f5a 100%)
+    fn parse_gradient_fallback(value: &str) -> Option<Color> {
+        // 找到括号内的内容
+        let start = value.find('(')?;
+        let end = value.rfind(')')?;
+        let inner = &value[start + 1..end];
+        
+        // 按逗号分割，跳过角度/方向参数
+        for part in inner.split(',') {
+            let part = part.trim();
+            
+            // 跳过角度（如 135deg, 180deg）
+            if part.ends_with("deg") || part.starts_with("to ") {
+                continue;
+            }
+            
+            // 尝试提取颜色（可能带有百分比位置）
+            // 例如：#ff6b35 0% 或 #fff5f0 或 rgb(255, 107, 53)
+            let color_part = part.split_whitespace().next()?;
+            
+            // 尝试解析为颜色
+            if color_part.starts_with('#') {
+                if let Some(color) = Self::parse_color(color_part) {
+                    return Some(color);
+                }
+            } else if color_part.starts_with("rgb") {
+                // 需要找到完整的 rgb/rgba 表达式
+                if let Some(rgb_end) = part.find(')') {
+                    let rgb_part = &part[..rgb_end + 1];
+                    if let Some(color) = Self::parse_rgb_color(rgb_part) {
+                        return Some(color);
+                    }
+                }
+            } else if let Some(color) = Self::parse_named_color(color_part) {
+                return Some(color);
+            }
+        }
+        
+        None
     }
     
     fn parse_length(value: &str) -> Option<(f32, LengthUnit)> {

@@ -134,7 +134,6 @@ Page({
   },
 
   onBuyNow: function() {
-    var self = this;
     var product = this.data.product;
     var quantity = this.data.quantity;
     

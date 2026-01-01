@@ -48,6 +48,7 @@ struct ModalState {
     cancel_text: String,
     confirm_text: String,
     visible: bool,
+    pressed_button: Option<String>, // "cancel" or "confirm"
 }
 
 struct MiniAppWindow {
@@ -595,48 +596,142 @@ impl MiniAppWindow {
         }
     }
     
-    /// 处理 Modal 点击
-    fn handle_modal_click(&mut self, x: f32, y: f32) {
-        let sf = self.scale_factor as f32;
-        let modal_width = (280.0 * sf) as f32;
-        let modal_padding = 20.0 * sf;
-        let title_height = 22.0 * sf;
-        let content_height = 44.0 * sf;
-        let button_height = 44.0 * sf;
-        let modal_height = modal_padding * 2.0 + title_height + content_height + button_height + 20.0 * sf;
+    /// 处理 Modal 按钮按下
+    fn handle_modal_press(&mut self, x: f32, y: f32) -> bool {
+        let modal = match &self.modal {
+            Some(m) if m.visible => m,
+            _ => return false,
+        };
         
-        let modal_x = (LOGICAL_WIDTH as f32 - modal_width / sf) / 2.0;
-        let modal_y = (LOGICAL_HEIGHT as f32 - modal_height / sf) / 2.0;
-        let button_y = modal_y + modal_height / sf - button_height / sf;
+        let sf = self.scale_factor as f32;
+        let modal_width = 280.0 * sf;
+        let modal_padding = 24.0 * sf;
+        let title_font_size = 17.0 * sf;
+        let content_font_size = 14.0 * sf;
+        let button_height = 50.0 * sf;
+        let gap = 16.0 * sf;
+        
+        let title_line_height = title_font_size * 1.4;
+        // 计算内容需要的行数
+        let content_max_width = modal_width - modal_padding * 2.0;
+        let content_lines = if let Some(tr) = &self.text_renderer {
+            let text_width = tr.measure_text(&modal.content, content_font_size);
+            ((text_width / content_max_width).ceil() as i32).max(1)
+        } else { 1 };
+        let content_line_height = content_font_size * 1.6 * content_lines as f32;
+        
+        let modal_height = modal_padding + title_line_height + gap + content_line_height + gap + button_height;
+        
+        // 转换为逻辑坐标
+        let modal_x = (LOGICAL_WIDTH as f32 * sf - modal_width) / 2.0 / sf;
+        let modal_y = (LOGICAL_HEIGHT as f32 * sf - modal_height) / 2.0 / sf;
+        let button_y = modal_y + (modal_height - button_height) / sf;
+        let button_h = button_height / sf;
+        let modal_w = modal_width / sf;
         
         // 检查是否点击在按钮区域
-        if y >= button_y && y <= button_y + button_height / sf {
-            if x >= modal_x && x <= modal_x + modal_width / sf {
-                let show_cancel = self.modal.as_ref().map(|m| m.show_cancel).unwrap_or(false);
+        if y >= button_y && y <= button_y + button_h {
+            if x >= modal_x && x <= modal_x + modal_w {
+                let show_cancel = modal.show_cancel;
                 
                 if show_cancel {
-                    let button_width = modal_width / sf / 2.0;
+                    let button_width = modal_w / 2.0;
                     if x < modal_x + button_width {
-                        // 点击取消按钮
-                        println!("Modal: 取消");
-                        self.app.eval("if(__modalCallback) __modalCallback({ confirm: false, cancel: true })").ok();
+                        // 按下取消按钮
+                        if let Some(m) = &mut self.modal {
+                            m.pressed_button = Some("cancel".to_string());
+                        }
                     } else {
-                        // 点击确认按钮
-                        println!("Modal: 确认");
-                        self.app.eval("if(__modalCallback) __modalCallback({ confirm: true, cancel: false })").ok();
+                        // 按下确认按钮
+                        if let Some(m) = &mut self.modal {
+                            m.pressed_button = Some("confirm".to_string());
+                        }
                     }
                 } else {
                     // 只有确认按钮
+                    if let Some(m) = &mut self.modal {
+                        m.pressed_button = Some("confirm".to_string());
+                    }
+                }
+                self.needs_redraw = true;
+                if let Some(w) = &self.window { w.request_redraw(); }
+                return true;
+            }
+        }
+        false
+    }
+    
+    /// 处理 Modal 按钮释放
+    fn handle_modal_release(&mut self, x: f32, y: f32) {
+        let pressed = self.modal.as_ref().and_then(|m| m.pressed_button.clone());
+        
+        // 清除按下状态
+        if let Some(m) = &mut self.modal {
+            m.pressed_button = None;
+        }
+        
+        let modal = match &self.modal {
+            Some(m) if m.visible => m,
+            _ => return,
+        };
+        
+        let sf = self.scale_factor as f32;
+        let modal_width = 280.0 * sf;
+        let modal_padding = 24.0 * sf;
+        let title_font_size = 17.0 * sf;
+        let content_font_size = 14.0 * sf;
+        let button_height = 50.0 * sf;
+        let gap = 16.0 * sf;
+        
+        let title_line_height = title_font_size * 1.4;
+        let content_max_width = modal_width - modal_padding * 2.0;
+        let content_lines = if let Some(tr) = &self.text_renderer {
+            let text_width = tr.measure_text(&modal.content, content_font_size);
+            ((text_width / content_max_width).ceil() as i32).max(1)
+        } else { 1 };
+        let content_line_height = content_font_size * 1.6 * content_lines as f32;
+        
+        let modal_height = modal_padding + title_line_height + gap + content_line_height + gap + button_height;
+        
+        let modal_x = (LOGICAL_WIDTH as f32 * sf - modal_width) / 2.0 / sf;
+        let modal_y = (LOGICAL_HEIGHT as f32 * sf - modal_height) / 2.0 / sf;
+        let button_y = modal_y + (modal_height - button_height) / sf;
+        let button_h = button_height / sf;
+        let modal_w = modal_width / sf;
+        
+        // 检查释放位置是否仍在按钮区域
+        if y >= button_y && y <= button_y + button_h && x >= modal_x && x <= modal_x + modal_w {
+            let show_cancel = modal.show_cancel;
+            
+            let clicked_button = if show_cancel {
+                let button_width = modal_w / 2.0;
+                if x < modal_x + button_width { "cancel" } else { "confirm" }
+            } else {
+                "confirm"
+            };
+            
+            // 只有当释放位置与按下位置相同时才触发
+            if pressed.as_deref() == Some(clicked_button) {
+                if clicked_button == "cancel" {
+                    println!("Modal: 取消");
+                    self.app.eval("if(__modalCallback) __modalCallback({ confirm: false, cancel: true })").ok();
+                } else {
                     println!("Modal: 确认");
                     self.app.eval("if(__modalCallback) __modalCallback({ confirm: true, cancel: false })").ok();
                 }
                 
                 // 关闭 Modal
                 self.modal = None;
-                self.needs_redraw = true;
-                if let Some(w) = &self.window { w.request_redraw(); }
             }
         }
+        
+        self.needs_redraw = true;
+        if let Some(w) = &self.window { w.request_redraw(); }
+    }
+    
+    /// 处理 Modal 点击（兼容旧逻辑）
+    fn handle_modal_click(&mut self, x: f32, y: f32) {
+        self.handle_modal_release(x, y);
     }
     
     fn handle_custom_tabbar_click(&mut self, x: f32, y: f32) {
@@ -735,6 +830,7 @@ impl MiniAppWindow {
                         cancel_text,
                         confirm_text,
                         visible: true,
+                        pressed_button: None,
                     });
                     self.needs_redraw = true;
                 }
@@ -1088,6 +1184,17 @@ impl ApplicationHandler for MiniAppWindow {
                         let x = self.mouse_pos.0;
                         let y = self.mouse_pos.1;
                         
+                        // 如果有 Modal 显示，优先处理 Modal 按钮按下
+                        if self.modal.as_ref().map(|m| m.visible).unwrap_or(false) {
+                            self.handle_modal_press(x, y);
+                            return;
+                        }
+                        
+                        // 如果有 Loading 显示，忽略点击
+                        if self.loading.as_ref().map(|l| l.visible).unwrap_or(false) {
+                            return;
+                        }
+                        
                         // 首先检查是否点击在 tabbar 区域，如果是则不处理内容区域的交互
                         let page = self.page_stack.last();
                         let has_tabbar = page.map(|p| self.is_tabbar_page(&p.path)).unwrap_or(false);
@@ -1223,6 +1330,12 @@ impl ApplicationHandler for MiniAppWindow {
                         }
                     }
                     ElementState::Released => {
+                        // 如果有 Modal 按钮被按下，处理释放
+                        if self.modal.as_ref().map(|m| m.visible && m.pressed_button.is_some()).unwrap_or(false) {
+                            self.handle_modal_release(self.mouse_pos.0, self.mouse_pos.1);
+                            return;
+                        }
+                        
                         self.interaction.clear_button_pressed();
                         
                         // 结束文本选择
@@ -1474,11 +1587,19 @@ fn render_modal_to_buffer(buffer: &mut softbuffer::Buffer<Arc<Window>, Arc<Windo
     let button_height = (50.0 * sf) as i32;
     let gap = (16.0 * sf) as i32;
     
-    // 计算内容高度
+    // 计算内容高度（支持多行）
     let title_line_height = (title_font_size * 1.4) as i32;
-    let content_line_height = (content_font_size * 1.6) as i32;
+    let content_max_width = modal_width - modal_padding * 2;
     
-    let modal_height = modal_padding + title_line_height + gap + content_line_height + gap + button_height;
+    // 计算内容需要的行数
+    let (content_lines, wrapped_content) = if let Some(tr) = text_renderer {
+        wrap_text(tr, &modal.content, content_font_size, content_max_width as f32)
+    } else {
+        (vec![modal.content.clone()], 1)
+    };
+    let content_total_height = (content_font_size * 1.5) as i32 * wrapped_content.max(1) as i32;
+    
+    let modal_height = modal_padding + title_line_height + gap + content_total_height + gap + button_height;
     let modal_x = (width as i32 - modal_width) / 2;
     let modal_y = (height as i32 - modal_height) / 2;
     let radius = (14.0 * sf) as i32;
@@ -1495,12 +1616,16 @@ fn render_modal_to_buffer(buffer: &mut softbuffer::Buffer<Arc<Window>, Arc<Windo
         
         draw_text_direct(buffer, width, height, tr, &modal.title, title_x, title_y, title_font_size, Color::BLACK);
         
-        // 绘制内容（居中，灰色）
-        let content_text_w = tr.measure_text(&modal.content, content_font_size) as i32;
-        let content_x = modal_x + ((modal_width - content_text_w) / 2).max(modal_padding);
-        let content_y = title_y + title_line_height + gap;
+        // 绘制内容（多行，居中，灰色）
+        let content_start_y = title_y + title_line_height + gap;
+        let line_height = (content_font_size * 1.5) as i32;
         
-        draw_text_direct(buffer, width, height, tr, &modal.content, content_x, content_y, content_font_size, Color::from_hex(0x888888));
+        for (i, line) in content_lines.iter().enumerate() {
+            let line_w = tr.measure_text(line, content_font_size) as i32;
+            let line_x = modal_x + (modal_width - line_w) / 2;
+            let line_y = content_start_y + i as i32 * line_height;
+            draw_text_direct(buffer, width, height, tr, line, line_x, line_y, content_font_size, Color::from_hex(0x888888));
+        }
         
         // 绘制分隔线
         let line_y = modal_y + modal_height - button_height - 1;
@@ -1515,11 +1640,17 @@ fn render_modal_to_buffer(buffer: &mut softbuffer::Buffer<Arc<Window>, Arc<Windo
         // 绘制按钮
         let button_y = modal_y + modal_height - button_height;
         let btn_text_y = button_y + (button_height - button_font_size as i32) / 2;
+        let pressed_bg = 0xFFF0F0F0u32; // 按下时的背景色
         
         if modal.show_cancel {
             let button_width = modal_width / 2;
             
-            // 取消按钮（左侧，黑色）
+            // 取消按钮背景（如果按下）
+            if modal.pressed_button.as_deref() == Some("cancel") {
+                draw_rounded_rect_partial(buffer, width, height, modal_x, button_y, button_width, button_height, radius, pressed_bg, true, false);
+            }
+            
+            // 取消按钮文字（左侧，黑色）
             let cancel_text_w = tr.measure_text(&modal.cancel_text, button_font_size) as i32;
             let cancel_x = modal_x + (button_width - cancel_text_w) / 2;
             draw_text_direct(buffer, width, height, tr, &modal.cancel_text, cancel_x, btn_text_y, button_font_size, Color::BLACK);
@@ -1533,15 +1664,78 @@ fn render_modal_to_buffer(buffer: &mut softbuffer::Buffer<Arc<Window>, Arc<Windo
                 }
             }
             
-            // 确认按钮（右侧，蓝色）
+            // 确认按钮背景（如果按下）
+            if modal.pressed_button.as_deref() == Some("confirm") {
+                draw_rounded_rect_partial(buffer, width, height, modal_x + button_width, button_y, button_width, button_height, radius, pressed_bg, false, true);
+            }
+            
+            // 确认按钮文字（右侧，蓝色）
             let confirm_text_w = tr.measure_text(&modal.confirm_text, button_font_size) as i32;
             let confirm_x = modal_x + button_width + (button_width - confirm_text_w) / 2;
             draw_text_direct(buffer, width, height, tr, &modal.confirm_text, confirm_x, btn_text_y, button_font_size, Color::from_hex(0x576B95));
         } else {
+            // 确认按钮背景（如果按下）
+            if modal.pressed_button.as_deref() == Some("confirm") {
+                draw_rounded_rect_partial(buffer, width, height, modal_x, button_y, modal_width, button_height, radius, pressed_bg, true, true);
+            }
+            
             // 只有确认按钮（居中，蓝色）
             let confirm_text_w = tr.measure_text(&modal.confirm_text, button_font_size) as i32;
             let confirm_x = modal_x + (modal_width - confirm_text_w) / 2;
             draw_text_direct(buffer, width, height, tr, &modal.confirm_text, confirm_x, btn_text_y, button_font_size, Color::from_hex(0x576B95));
+        }
+    }
+}
+
+/// 文字换行
+fn wrap_text(tr: &TextRenderer, text: &str, font_size: f32, max_width: f32) -> (Vec<String>, i32) {
+    let mut lines = Vec::new();
+    let mut current_line = String::new();
+    let mut current_width = 0.0;
+    
+    for ch in text.chars() {
+        let char_width = tr.measure_char(ch, font_size);
+        
+        if current_width + char_width > max_width && !current_line.is_empty() {
+            lines.push(current_line);
+            current_line = String::new();
+            current_width = 0.0;
+        }
+        
+        current_line.push(ch);
+        current_width += char_width;
+    }
+    
+    if !current_line.is_empty() {
+        lines.push(current_line);
+    }
+    
+    let count = lines.len() as i32;
+    (lines, count)
+}
+
+/// 绘制部分圆角矩形（用于按钮背景）
+fn draw_rounded_rect_partial(buffer: &mut [u32], width: u32, height: u32, x: i32, y: i32, w: i32, h: i32, radius: i32, color: u32, left_rounded: bool, right_rounded: bool) {
+    for py in y.max(0)..(y + h).min(height as i32) {
+        for px in x.max(0)..(x + w).min(width as i32) {
+            // 只处理底部圆角
+            let in_bottom_left = left_rounded && px < x + radius && py >= y + h - radius;
+            let in_bottom_right = right_rounded && px >= x + w - radius && py >= y + h - radius;
+            
+            if in_bottom_left {
+                let cx = x + radius;
+                let cy = y + h - radius;
+                let dist = (((px - cx) * (px - cx) + (py - cy) * (py - cy)) as f32).sqrt();
+                if dist > radius as f32 { continue; }
+            } else if in_bottom_right {
+                let cx = x + w - radius;
+                let cy = y + h - radius;
+                let dist = (((px - cx) * (px - cx) + (py - cy) * (py - cy)) as f32).sqrt();
+                if dist > radius as f32 { continue; }
+            }
+            
+            let idx = (py as u32 * width + px as u32) as usize;
+            if idx < buffer.len() { buffer[idx] = color; }
         }
     }
 }

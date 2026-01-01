@@ -258,3 +258,32 @@ fn test_rounded_rect_bounds() {
     // 边缘中点应该在矩形内
     assert!(check_corner(x + w/2, y));
 }
+
+
+/// 测试渐变 fallback 解析
+#[test]
+fn test_gradient_fallback_parsing() {
+    use crate::parser::WxssParser;
+    
+    // 测试 linear-gradient 解析
+    let css = r#"
+        .test1 { background: linear-gradient(135deg, #ff6b35 0%, #ff8f5a 100%); }
+        .test2 { background: linear-gradient(180deg, #fff5f0 0%, #f5f5f5 200rpx); }
+        .test3 { background-color: #ff4d4f; }
+    "#;
+    
+    let mut parser = WxssParser::new(css);
+    let stylesheet = parser.parse().expect("Failed to parse CSS");
+    
+    // test1 应该提取第一个颜色 #ff6b35
+    let styles1 = stylesheet.get_styles(&["test1"], "view");
+    assert!(styles1.contains_key("background"), "test1 should have background");
+    
+    // test2 应该提取第一个颜色 #fff5f0
+    let styles2 = stylesheet.get_styles(&["test2"], "view");
+    assert!(styles2.contains_key("background"), "test2 should have background");
+    
+    // test3 应该是纯色 #ff4d4f
+    let styles3 = stylesheet.get_styles(&["test3"], "view");
+    assert!(styles3.contains_key("background-color"), "test3 should have background-color");
+}
