@@ -1333,6 +1333,9 @@ fn render_ui_overlay(
     toast: &Option<ToastState>, loading: &Option<LoadingState>, modal: &Option<ModalState>,
     text_renderer: Option<&TextRenderer>
 ) {
+    // 注意：width/height 是物理像素，sf 是 scale factor
+    // 所有尺寸计算都应该基于物理像素
+    
     // 渲染 Loading（优先级最高）
     if let Some(loading) = loading {
         if loading.visible {
@@ -1359,185 +1362,96 @@ fn render_ui_overlay(
 
 /// 渲染 Toast 到 buffer
 fn render_toast_to_buffer(buffer: &mut softbuffer::Buffer<Arc<Window>, Arc<Window>>, width: u32, height: u32, title: &str, icon: &str, sf: f32, text_renderer: Option<&TextRenderer>) {
-    let toast_padding = (16.0 * sf) as i32;
-    let toast_min_width = (120.0 * sf) as i32;
-    let toast_height = if icon == "none" { (44.0 * sf) as i32 } else { (100.0 * sf) as i32 };
-    let icon_size = (40.0 * sf) as i32;
-    let font_size = (14.0 * sf) as i32;
+    // 所有尺寸都是物理像素
+    let toast_padding = (20.0 * sf) as i32;
+    let toast_min_width = (140.0 * sf) as i32;
+    let toast_height = if icon == "none" { (50.0 * sf) as i32 } else { (120.0 * sf) as i32 };
+    let icon_size = (50.0 * sf) as i32;
+    let font_size = 14.0 * sf;
     
-    let text_width = (title.chars().count() as f32 * font_size as f32 * 0.55) as i32;
+    // 计算文字宽度
+    let text_width = if let Some(tr) = text_renderer {
+        tr.measure_text(title, font_size) as i32
+    } else {
+        (title.chars().count() as f32 * font_size * 0.6) as i32
+    };
     let toast_width = (toast_min_width).max(text_width + toast_padding * 2);
     
     let toast_x = (width as i32 - toast_width) / 2;
     let toast_y = (height as i32 - toast_height) / 2;
     
-    let bg_color = 0xFF333333u32;
-    let radius = (8.0 * sf) as i32;
+    let bg_color = 0xFF4C4C4Cu32;
+    let radius = (12.0 * sf) as i32;
     
     // 绘制圆角矩形背景
-    for py in toast_y.max(0)..(toast_y + toast_height).min(height as i32) {
-        for px in toast_x.max(0)..(toast_x + toast_width).min(width as i32) {
-            let in_corner = (px < toast_x + radius || px >= toast_x + toast_width - radius) &&
-                           (py < toast_y + radius || py >= toast_y + toast_height - radius);
-            if in_corner {
-                let cx = if px < toast_x + radius { toast_x + radius } else { toast_x + toast_width - radius };
-                let cy = if py < toast_y + radius { toast_y + radius } else { toast_y + toast_height - radius };
-                let dist = (((px - cx) * (px - cx) + (py - cy) * (py - cy)) as f32).sqrt();
-                if dist > radius as f32 { continue; }
-            }
-            let idx = (py as u32 * width + px as u32) as usize;
-            if idx < buffer.len() { buffer[idx] = bg_color; }
-        }
-    }
+    draw_rounded_rect(buffer, width, height, toast_x, toast_y, toast_width, toast_height, radius, bg_color);
     
     // 绘制图标
     if icon != "none" {
         let icon_x = toast_x + (toast_width - icon_size) / 2;
         let icon_y = toast_y + toast_padding;
         let icon_color = if icon == "success" { 0xFF09BB07u32 } else { 0xFFFFFFFFu32 };
-        let center_x = icon_x + icon_size / 2;
-        let center_y = icon_y + icon_size / 2;
-        let icon_radius = icon_size / 2 - 2;
         
-        // 绘制圆环
-        for py in (icon_y).max(0)..(icon_y + icon_size).min(height as i32) {
-            for px in (icon_x).max(0)..(icon_x + icon_size).min(width as i32) {
-                let dist = (((px - center_x) * (px - center_x) + (py - center_y) * (py - center_y)) as f32).sqrt();
-                if dist <= icon_radius as f32 && dist >= (icon_radius - 3) as f32 {
-                    let idx = (py as u32 * width + px as u32) as usize;
-                    if idx < buffer.len() { buffer[idx] = icon_color; }
-                }
-            }
-        }
-        
-        // 绘制勾号
         if icon == "success" {
-            for t in 0..30 {
-                let t = t as f32 / 30.0;
-                let px = (center_x - icon_radius / 2) as f32 + (icon_radius / 3) as f32 * t;
-                let py = center_y as f32 + (icon_radius / 3) as f32 * t;
-                for dy in -2..=2 { for dx in -2..=2 {
-                    let idx = ((py as i32 + dy) as u32 * width + (px as i32 + dx) as u32) as usize;
-                    if idx < buffer.len() { buffer[idx] = icon_color; }
-                }}
-            }
-            for t in 0..30 {
-                let t = t as f32 / 30.0;
-                let px = (center_x - icon_radius / 6) as f32 + (icon_radius * 2 / 3) as f32 * t;
-                let py = (center_y + icon_radius / 3) as f32 - (icon_radius * 2 / 3) as f32 * t;
-                for dy in -2..=2 { for dx in -2..=2 {
-                    let idx = ((py as i32 + dy) as u32 * width + (px as i32 + dx) as u32) as usize;
-                    if idx < buffer.len() { buffer[idx] = icon_color; }
-                }}
-            }
+            draw_checkmark(buffer, width, height, icon_x, icon_y, icon_size, icon_color, sf);
+        } else {
+            // loading 图标 - 简单圆圈
+            draw_circle_outline(buffer, width, height, icon_x + icon_size/2, icon_y + icon_size/2, icon_size/2 - 4, icon_color, (3.0 * sf) as i32);
         }
     }
     
     // 绘制文字
-    let text_y = if icon == "none" { toast_y + (toast_height - font_size) / 2 } 
-                 else { toast_y + toast_padding + icon_size + (8.0 * sf) as i32 };
-    let text_x = toast_x + (toast_width - text_width) / 2;
-    
     if let Some(tr) = text_renderer {
-        let mut temp_canvas = Canvas::new(toast_width as u32, font_size as u32 + 4);
-        temp_canvas.clear(Color::TRANSPARENT);
-        let paint = Paint::new().with_color(Color::WHITE);
-        tr.draw_text(&mut temp_canvas, title, 0.0, 0.0, font_size as f32, &paint);
-        let temp_pixels = temp_canvas.pixels();
-        for py in 0..temp_canvas.height() as i32 {
-            for px in 0..temp_canvas.width() as i32 {
-                let src_idx = (py as u32 * temp_canvas.width() + px as u32) as usize;
-                let dst_x = text_x + px;
-                let dst_y = text_y + py;
-                if dst_x >= 0 && dst_x < width as i32 && dst_y >= 0 && dst_y < height as i32 {
-                    let dst_idx = (dst_y as u32 * width + dst_x as u32) as usize;
-                    if dst_idx < buffer.len() && src_idx < temp_pixels.len() {
-                        let pixel = temp_pixels[src_idx];
-                        if pixel.a > 0 { buffer[dst_idx] = 0xFF000000 | ((pixel.r as u32) << 16) | ((pixel.g as u32) << 8) | (pixel.b as u32); }
-                    }
-                }
-            }
-        }
+        let text_y = if icon == "none" { 
+            toast_y + (toast_height - font_size as i32) / 2 
+        } else { 
+            toast_y + toast_padding + icon_size + (12.0 * sf) as i32 
+        };
+        let text_x = toast_x + (toast_width - text_width) / 2;
+        
+        draw_text_direct(buffer, width, height, tr, title, text_x, text_y, font_size, Color::WHITE);
     }
 }
 
 /// 渲染 Loading 到 buffer
 fn render_loading_to_buffer(buffer: &mut softbuffer::Buffer<Arc<Window>, Arc<Window>>, width: u32, height: u32, title: &str, sf: f32, last_frame: Instant, text_renderer: Option<&TextRenderer>) {
-    let loading_size = (100.0 * sf) as i32;
+    let loading_size = (120.0 * sf) as i32;
     let loading_x = (width as i32 - loading_size) / 2;
     let loading_y = (height as i32 - loading_size) / 2;
-    let radius = (8.0 * sf) as i32;
-    let bg_color = 0xFF333333u32;
+    let radius = (12.0 * sf) as i32;
+    let bg_color = 0xFF4C4C4Cu32;
     
-    for py in loading_y.max(0)..(loading_y + loading_size).min(height as i32) {
-        for px in loading_x.max(0)..(loading_x + loading_size).min(width as i32) {
-            let in_corner = (px < loading_x + radius || px >= loading_x + loading_size - radius) &&
-                           (py < loading_y + radius || py >= loading_y + loading_size - radius);
-            if in_corner {
-                let cx = if px < loading_x + radius { loading_x + radius } else { loading_x + loading_size - radius };
-                let cy = if py < loading_y + radius { loading_y + radius } else { loading_y + loading_size - radius };
-                let dist = (((px - cx) * (px - cx) + (py - cy) * (py - cy)) as f32).sqrt();
-                if dist > radius as f32 { continue; }
-            }
-            let idx = (py as u32 * width + px as u32) as usize;
-            if idx < buffer.len() { buffer[idx] = bg_color; }
-        }
-    }
+    // 绘制圆角矩形背景
+    draw_rounded_rect(buffer, width, height, loading_x, loading_y, loading_size, loading_size, radius, bg_color);
     
     // 绘制旋转加载圈
     let center_x = loading_x + loading_size / 2;
-    let center_y = loading_y + (30.0 * sf) as i32;
-    let spinner_radius = (16.0 * sf) as i32;
+    let center_y = loading_y + (45.0 * sf) as i32;
+    let spinner_radius = (22.0 * sf) as i32;
     let time = last_frame.elapsed().as_secs_f32();
     let angle = time * 5.0;
+    let dot_radius = (4.0 * sf) as i32;
     
+    // 绘制 12 个点组成的加载圈
     for i in 0..12 {
         let seg_angle = angle + (i as f32 * std::f32::consts::PI / 6.0);
-        let alpha = ((12 - i) as f32 / 12.0 * 255.0) as u32;
-        let color = 0xFF000000 | (alpha << 16) | (alpha << 8) | alpha;
-        let x1 = center_x + ((spinner_radius - 4) as f32 * seg_angle.cos()) as i32;
-        let y1 = center_y + ((spinner_radius - 4) as f32 * seg_angle.sin()) as i32;
-        let x2 = center_x + (spinner_radius as f32 * seg_angle.cos()) as i32;
-        let y2 = center_y + (spinner_radius as f32 * seg_angle.sin()) as i32;
-        for t in 0..10 {
-            let t = t as f32 / 10.0;
-            let px = (x1 as f32 + (x2 - x1) as f32 * t) as i32;
-            let py = (y1 as f32 + (y2 - y1) as f32 * t) as i32;
-            for dy in -1..=1 { for dx in -1..=1 {
-                if px + dx >= 0 && px + dx < width as i32 && py + dy >= 0 && py + dy < height as i32 {
-                    let idx = ((py + dy) as u32 * width + (px + dx) as u32) as usize;
-                    if idx < buffer.len() { buffer[idx] = color; }
-                }
-            }}
-        }
+        let alpha = ((12 - i) as f32 / 12.0 * 255.0) as u8;
+        let color = 0xFF000000 | ((alpha as u32) << 16) | ((alpha as u32) << 8) | (alpha as u32);
+        
+        let dot_x = center_x + (spinner_radius as f32 * seg_angle.cos()) as i32;
+        let dot_y = center_y + (spinner_radius as f32 * seg_angle.sin()) as i32;
+        
+        draw_filled_circle(buffer, width, height, dot_x, dot_y, dot_radius, color);
     }
     
     // 绘制文字
-    let font_size = (14.0 * sf) as i32;
-    let text_width = (title.chars().count() as f32 * font_size as f32 * 0.55) as i32;
-    let text_x = loading_x + (loading_size - text_width) / 2;
-    let text_y = loading_y + loading_size - (30.0 * sf) as i32;
-    
     if let Some(tr) = text_renderer {
-        let mut temp_canvas = Canvas::new(loading_size as u32, font_size as u32 + 4);
-        temp_canvas.clear(Color::TRANSPARENT);
-        let paint = Paint::new().with_color(Color::WHITE);
-        tr.draw_text(&mut temp_canvas, title, 0.0, 0.0, font_size as f32, &paint);
-        let temp_pixels = temp_canvas.pixels();
-        for py in 0..temp_canvas.height() as i32 {
-            for px in 0..temp_canvas.width() as i32 {
-                let src_idx = (py as u32 * temp_canvas.width() + px as u32) as usize;
-                let dst_x = text_x + px;
-                let dst_y = text_y + py;
-                if dst_x >= 0 && dst_x < width as i32 && dst_y >= 0 && dst_y < height as i32 {
-                    let dst_idx = (dst_y as u32 * width + dst_x as u32) as usize;
-                    if dst_idx < buffer.len() && src_idx < temp_pixels.len() {
-                        let pixel = temp_pixels[src_idx];
-                        if pixel.a > 0 { buffer[dst_idx] = 0xFF000000 | ((pixel.r as u32) << 16) | ((pixel.g as u32) << 8) | (pixel.b as u32); }
-                    }
-                }
-            }
-        }
+        let font_size = 14.0 * sf;
+        let text_width = tr.measure_text(title, font_size) as i32;
+        let text_x = loading_x + (loading_size - text_width) / 2;
+        let text_y = loading_y + loading_size - (35.0 * sf) as i32;
+        
+        draw_text_direct(buffer, width, height, tr, title, text_x, text_y, font_size, Color::WHITE);
     }
 }
 
@@ -1553,177 +1467,242 @@ fn render_modal_to_buffer(buffer: &mut softbuffer::Buffer<Arc<Window>, Arc<Windo
     }
     
     let modal_width = (280.0 * sf) as i32;
-    let modal_padding = (20.0 * sf) as i32;
-    let title_height = (22.0 * sf) as i32;
-    let content_height = (44.0 * sf) as i32;
-    let button_height = (44.0 * sf) as i32;
-    let modal_height = modal_padding * 2 + title_height + content_height + button_height + (20.0 * sf) as i32;
+    let modal_padding = (24.0 * sf) as i32;
+    let title_font_size = 17.0 * sf;
+    let content_font_size = 14.0 * sf;
+    let button_font_size = 17.0 * sf;
+    let button_height = (50.0 * sf) as i32;
+    let gap = (16.0 * sf) as i32;
+    
+    // 计算内容高度
+    let title_line_height = (title_font_size * 1.4) as i32;
+    let content_line_height = (content_font_size * 1.6) as i32;
+    
+    let modal_height = modal_padding + title_line_height + gap + content_line_height + gap + button_height;
     let modal_x = (width as i32 - modal_width) / 2;
     let modal_y = (height as i32 - modal_height) / 2;
-    let radius = (12.0 * sf) as i32;
+    let radius = (14.0 * sf) as i32;
     let bg_color = 0xFFFFFFFFu32;
     
-    // 绘制白色背景
-    for py in modal_y.max(0)..(modal_y + modal_height).min(height as i32) {
-        for px in modal_x.max(0)..(modal_x + modal_width).min(width as i32) {
-            let in_corner = (px < modal_x + radius || px >= modal_x + modal_width - radius) &&
-                           (py < modal_y + radius || py >= modal_y + modal_height - radius);
+    // 绘制白色圆角背景
+    draw_rounded_rect(buffer, width, height, modal_x, modal_y, modal_width, modal_height, radius, bg_color);
+    
+    if let Some(tr) = text_renderer {
+        // 绘制标题（居中，黑色）
+        let title_text_w = tr.measure_text(&modal.title, title_font_size) as i32;
+        let title_x = modal_x + (modal_width - title_text_w) / 2;
+        let title_y = modal_y + modal_padding;
+        
+        draw_text_direct(buffer, width, height, tr, &modal.title, title_x, title_y, title_font_size, Color::BLACK);
+        
+        // 绘制内容（居中，灰色）
+        let content_text_w = tr.measure_text(&modal.content, content_font_size) as i32;
+        let content_x = modal_x + ((modal_width - content_text_w) / 2).max(modal_padding);
+        let content_y = title_y + title_line_height + gap;
+        
+        draw_text_direct(buffer, width, height, tr, &modal.content, content_x, content_y, content_font_size, Color::from_hex(0x888888));
+        
+        // 绘制分隔线
+        let line_y = modal_y + modal_height - button_height - 1;
+        let line_color = 0xFFE5E5E5u32;
+        for px in modal_x..(modal_x + modal_width) {
+            if px >= 0 && px < width as i32 && line_y >= 0 && line_y < height as i32 {
+                let idx = (line_y as u32 * width + px as u32) as usize;
+                if idx < buffer.len() { buffer[idx] = line_color; }
+            }
+        }
+        
+        // 绘制按钮
+        let button_y = modal_y + modal_height - button_height;
+        let btn_text_y = button_y + (button_height - button_font_size as i32) / 2;
+        
+        if modal.show_cancel {
+            let button_width = modal_width / 2;
+            
+            // 取消按钮（左侧，黑色）
+            let cancel_text_w = tr.measure_text(&modal.cancel_text, button_font_size) as i32;
+            let cancel_x = modal_x + (button_width - cancel_text_w) / 2;
+            draw_text_direct(buffer, width, height, tr, &modal.cancel_text, cancel_x, btn_text_y, button_font_size, Color::BLACK);
+            
+            // 垂直分隔线
+            let vline_x = modal_x + button_width;
+            for py in button_y..(button_y + button_height) {
+                if vline_x >= 0 && vline_x < width as i32 && py >= 0 && py < height as i32 {
+                    let idx = (py as u32 * width + vline_x as u32) as usize;
+                    if idx < buffer.len() { buffer[idx] = line_color; }
+                }
+            }
+            
+            // 确认按钮（右侧，蓝色）
+            let confirm_text_w = tr.measure_text(&modal.confirm_text, button_font_size) as i32;
+            let confirm_x = modal_x + button_width + (button_width - confirm_text_w) / 2;
+            draw_text_direct(buffer, width, height, tr, &modal.confirm_text, confirm_x, btn_text_y, button_font_size, Color::from_hex(0x576B95));
+        } else {
+            // 只有确认按钮（居中，蓝色）
+            let confirm_text_w = tr.measure_text(&modal.confirm_text, button_font_size) as i32;
+            let confirm_x = modal_x + (modal_width - confirm_text_w) / 2;
+            draw_text_direct(buffer, width, height, tr, &modal.confirm_text, confirm_x, btn_text_y, button_font_size, Color::from_hex(0x576B95));
+        }
+    }
+}
+
+// ============ 辅助绘图函数 ============
+
+/// 绘制圆角矩形
+fn draw_rounded_rect(buffer: &mut [u32], width: u32, height: u32, x: i32, y: i32, w: i32, h: i32, radius: i32, color: u32) {
+    for py in y.max(0)..(y + h).min(height as i32) {
+        for px in x.max(0)..(x + w).min(width as i32) {
+            let in_corner = (px < x + radius || px >= x + w - radius) &&
+                           (py < y + radius || py >= y + h - radius);
             if in_corner {
-                let cx = if px < modal_x + radius { modal_x + radius } else { modal_x + modal_width - radius };
-                let cy = if py < modal_y + radius { modal_y + radius } else { modal_y + modal_height - radius };
+                let cx = if px < x + radius { x + radius } else { x + w - radius };
+                let cy = if py < y + radius { y + radius } else { y + h - radius };
                 let dist = (((px - cx) * (px - cx) + (py - cy) * (py - cy)) as f32).sqrt();
                 if dist > radius as f32 { continue; }
             }
             let idx = (py as u32 * width + px as u32) as usize;
-            if idx < buffer.len() { buffer[idx] = bg_color; }
+            if idx < buffer.len() { buffer[idx] = color; }
         }
     }
+}
+
+/// 绘制实心圆
+fn draw_filled_circle(buffer: &mut [u32], width: u32, height: u32, cx: i32, cy: i32, radius: i32, color: u32) {
+    for dy in -radius..=radius {
+        for dx in -radius..=radius {
+            let dist = ((dx * dx + dy * dy) as f32).sqrt();
+            if dist <= radius as f32 {
+                let px = cx + dx;
+                let py = cy + dy;
+                if px >= 0 && px < width as i32 && py >= 0 && py < height as i32 {
+                    let idx = (py as u32 * width + px as u32) as usize;
+                    if idx < buffer.len() { buffer[idx] = color; }
+                }
+            }
+        }
+    }
+}
+
+/// 绘制圆环
+fn draw_circle_outline(buffer: &mut [u32], width: u32, height: u32, cx: i32, cy: i32, radius: i32, color: u32, thickness: i32) {
+    let outer = radius as f32;
+    let inner = (radius - thickness) as f32;
+    for dy in -(radius + 1)..=(radius + 1) {
+        for dx in -(radius + 1)..=(radius + 1) {
+            let dist = ((dx * dx + dy * dy) as f32).sqrt();
+            if dist <= outer && dist >= inner {
+                let px = cx + dx;
+                let py = cy + dy;
+                if px >= 0 && px < width as i32 && py >= 0 && py < height as i32 {
+                    let idx = (py as u32 * width + px as u32) as usize;
+                    if idx < buffer.len() { buffer[idx] = color; }
+                }
+            }
+        }
+    }
+}
+
+/// 绘制勾号图标
+fn draw_checkmark(buffer: &mut [u32], width: u32, height: u32, x: i32, y: i32, size: i32, color: u32, sf: f32) {
+    let cx = x + size / 2;
+    let cy = y + size / 2;
+    let r = size / 2 - (4.0 * sf) as i32;
+    let stroke = (4.0 * sf) as i32;
     
-    // 绘制标题
-    let title_font_size = (17.0 * sf) as i32;
-    let title_y = modal_y + modal_padding;
-    if let Some(tr) = text_renderer {
-        let mut temp_canvas = Canvas::new(modal_width as u32, title_font_size as u32 + 4);
-        temp_canvas.clear(Color::TRANSPARENT);
-        let text_w = tr.measure_text(&modal.title, title_font_size as f32);
-        let text_x = (modal_width as f32 - text_w) / 2.0;
-        let paint = Paint::new().with_color(Color::BLACK);
-        tr.draw_text(&mut temp_canvas, &modal.title, text_x, 0.0, title_font_size as f32, &paint);
-        let temp_pixels = temp_canvas.pixels();
-        for py in 0..temp_canvas.height() as i32 {
-            for px in 0..temp_canvas.width() as i32 {
-                let src_idx = (py as u32 * temp_canvas.width() + px as u32) as usize;
-                let dst_x = modal_x + px;
-                let dst_y = title_y + py;
-                if dst_x >= 0 && dst_x < width as i32 && dst_y >= 0 && dst_y < height as i32 {
-                    let dst_idx = (dst_y as u32 * width + dst_x as u32) as usize;
-                    if dst_idx < buffer.len() && src_idx < temp_pixels.len() {
-                        let pixel = temp_pixels[src_idx];
-                        if pixel.a > 0 { buffer[dst_idx] = 0xFF000000 | ((pixel.r as u32) << 16) | ((pixel.g as u32) << 8) | (pixel.b as u32); }
+    // 绘制圆环
+    draw_circle_outline(buffer, width, height, cx, cy, r + stroke/2, color, stroke);
+    
+    // 绘制勾号
+    // 勾号起点、拐点、终点
+    let p1_x = cx - r * 2 / 5;
+    let p1_y = cy;
+    let p2_x = cx - r / 10;
+    let p2_y = cy + r / 3;
+    let p3_x = cx + r * 2 / 5;
+    let p3_y = cy - r / 3;
+    
+    // 绘制第一段线（左下）
+    draw_thick_line(buffer, width, height, p1_x, p1_y, p2_x, p2_y, stroke, color);
+    // 绘制第二段线（右上）
+    draw_thick_line(buffer, width, height, p2_x, p2_y, p3_x, p3_y, stroke, color);
+}
+
+/// 绘制粗线
+fn draw_thick_line(buffer: &mut [u32], width: u32, height: u32, x1: i32, y1: i32, x2: i32, y2: i32, thickness: i32, color: u32) {
+    let dx = (x2 - x1) as f32;
+    let dy = (y2 - y1) as f32;
+    let len = (dx * dx + dy * dy).sqrt();
+    let steps = (len * 2.0) as i32;
+    
+    for i in 0..=steps {
+        let t = i as f32 / steps as f32;
+        let px = (x1 as f32 + dx * t) as i32;
+        let py = (y1 as f32 + dy * t) as i32;
+        
+        for dy in -thickness..=thickness {
+            for dx in -thickness..=thickness {
+                if dx * dx + dy * dy <= thickness * thickness {
+                    let fx = px + dx;
+                    let fy = py + dy;
+                    if fx >= 0 && fx < width as i32 && fy >= 0 && fy < height as i32 {
+                        let idx = (fy as u32 * width + fx as u32) as usize;
+                        if idx < buffer.len() { buffer[idx] = color; }
                     }
                 }
             }
         }
     }
+}
+
+/// 直接绘制文字到 buffer（不经过中间 canvas）
+fn draw_text_direct(
+    buffer: &mut [u32],
+    buf_width: u32, buf_height: u32,
+    tr: &TextRenderer,
+    text: &str,
+    x: i32, y: i32,
+    font_size: f32,
+    color: Color
+) {
+    let text_width = (tr.measure_text(text, font_size) + 10.0) as u32;
+    let text_height = (font_size * 1.5) as u32;
     
-    // 绘制内容
-    let content_font_size = (14.0 * sf) as i32;
-    let content_y = title_y + title_font_size + (15.0 * sf) as i32;
-    if let Some(tr) = text_renderer {
-        let mut temp_canvas = Canvas::new(modal_width as u32, content_height as u32);
-        temp_canvas.clear(Color::TRANSPARENT);
-        let text_w = tr.measure_text(&modal.content, content_font_size as f32);
-        let text_x = (modal_width as f32 - text_w) / 2.0;
-        let paint = Paint::new().with_color(Color::from_hex(0x666666));
-        tr.draw_text(&mut temp_canvas, &modal.content, text_x.max(modal_padding as f32), 0.0, content_font_size as f32, &paint);
-        let temp_pixels = temp_canvas.pixels();
-        for py in 0..temp_canvas.height() as i32 {
-            for px in 0..temp_canvas.width() as i32 {
-                let src_idx = (py as u32 * temp_canvas.width() + px as u32) as usize;
-                let dst_x = modal_x + px;
-                let dst_y = content_y + py;
-                if dst_x >= 0 && dst_x < width as i32 && dst_y >= 0 && dst_y < height as i32 {
-                    let dst_idx = (dst_y as u32 * width + dst_x as u32) as usize;
-                    if dst_idx < buffer.len() && src_idx < temp_pixels.len() {
-                        let pixel = temp_pixels[src_idx];
-                        if pixel.a > 0 { buffer[dst_idx] = 0xFF000000 | ((pixel.r as u32) << 16) | ((pixel.g as u32) << 8) | (pixel.b as u32); }
-                    }
-                }
-            }
-        }
-    }
+    if text_width == 0 || text_height == 0 { return; }
     
-    // 绘制分隔线
-    let line_y = modal_y + modal_height - button_height - 1;
-    let line_color = 0xFFE5E5E5u32;
-    for px in modal_x..(modal_x + modal_width) {
-        let idx = (line_y as u32 * width + px as u32) as usize;
-        if idx < buffer.len() { buffer[idx] = line_color; }
-    }
+    let mut temp_canvas = Canvas::new(text_width.max(1), text_height.max(1));
+    temp_canvas.clear(Color::TRANSPARENT);
+    let paint = Paint::new().with_color(color);
     
-    // 绘制按钮
-    let button_y = modal_y + modal_height - button_height;
-    let button_font_size = (17.0 * sf) as i32;
+    // draw_text 的 y 参数是 baseline 位置，不是顶部
+    // baseline 大约在字体高度的 80% 位置
+    let baseline_y = font_size * 0.85;
+    tr.draw_text(&mut temp_canvas, text, 0.0, baseline_y, font_size, &paint);
     
-    if modal.show_cancel {
-        let button_width = modal_width / 2;
-        // 取消按钮
-        if let Some(tr) = text_renderer {
-            let mut temp_canvas = Canvas::new(button_width as u32, button_font_size as u32 + 4);
-            temp_canvas.clear(Color::TRANSPARENT);
-            let text_w = tr.measure_text(&modal.cancel_text, button_font_size as f32);
-            let text_x = (button_width as f32 - text_w) / 2.0;
-            let paint = Paint::new().with_color(Color::BLACK);
-            tr.draw_text(&mut temp_canvas, &modal.cancel_text, text_x, 0.0, button_font_size as f32, &paint);
-            let temp_pixels = temp_canvas.pixels();
-            let btn_text_y = button_y + (button_height - button_font_size) / 2;
-            for py in 0..temp_canvas.height() as i32 {
-                for px in 0..temp_canvas.width() as i32 {
-                    let src_idx = (py as u32 * temp_canvas.width() + px as u32) as usize;
-                    let dst_x = modal_x + px;
-                    let dst_y = btn_text_y + py;
-                    if dst_x >= 0 && dst_x < width as i32 && dst_y >= 0 && dst_y < height as i32 {
-                        let dst_idx = (dst_y as u32 * width + dst_x as u32) as usize;
-                        if dst_idx < buffer.len() && src_idx < temp_pixels.len() {
-                            let pixel = temp_pixels[src_idx];
-                            if pixel.a > 0 { buffer[dst_idx] = 0xFF000000 | ((pixel.r as u32) << 16) | ((pixel.g as u32) << 8) | (pixel.b as u32); }
-                        }
-                    }
-                }
-            }
-        }
-        // 垂直分隔线
-        let vline_x = modal_x + button_width;
-        for py in button_y..(button_y + button_height) {
-            let idx = (py as u32 * width + vline_x as u32) as usize;
-            if idx < buffer.len() { buffer[idx] = line_color; }
-        }
-        // 确认按钮
-        if let Some(tr) = text_renderer {
-            let mut temp_canvas = Canvas::new(button_width as u32, button_font_size as u32 + 4);
-            temp_canvas.clear(Color::TRANSPARENT);
-            let text_w = tr.measure_text(&modal.confirm_text, button_font_size as f32);
-            let text_x = (button_width as f32 - text_w) / 2.0;
-            let paint = Paint::new().with_color(Color::from_hex(0x576B95));
-            tr.draw_text(&mut temp_canvas, &modal.confirm_text, text_x, 0.0, button_font_size as f32, &paint);
-            let temp_pixels = temp_canvas.pixels();
-            let btn_text_y = button_y + (button_height - button_font_size) / 2;
-            for py in 0..temp_canvas.height() as i32 {
-                for px in 0..temp_canvas.width() as i32 {
-                    let src_idx = (py as u32 * temp_canvas.width() + px as u32) as usize;
-                    let dst_x = modal_x + button_width + px;
-                    let dst_y = btn_text_y + py;
-                    if dst_x >= 0 && dst_x < width as i32 && dst_y >= 0 && dst_y < height as i32 {
-                        let dst_idx = (dst_y as u32 * width + dst_x as u32) as usize;
-                        if dst_idx < buffer.len() && src_idx < temp_pixels.len() {
-                            let pixel = temp_pixels[src_idx];
-                            if pixel.a > 0 { buffer[dst_idx] = 0xFF000000 | ((pixel.r as u32) << 16) | ((pixel.g as u32) << 8) | (pixel.b as u32); }
-                        }
-                    }
-                }
-            }
-        }
-    } else {
-        if let Some(tr) = text_renderer {
-            let mut temp_canvas = Canvas::new(modal_width as u32, button_font_size as u32 + 4);
-            temp_canvas.clear(Color::TRANSPARENT);
-            let text_w = tr.measure_text(&modal.confirm_text, button_font_size as f32);
-            let text_x = (modal_width as f32 - text_w) / 2.0;
-            let paint = Paint::new().with_color(Color::from_hex(0x576B95));
-            tr.draw_text(&mut temp_canvas, &modal.confirm_text, text_x, 0.0, button_font_size as f32, &paint);
-            let temp_pixels = temp_canvas.pixels();
-            let btn_text_y = button_y + (button_height - button_font_size) / 2;
-            for py in 0..temp_canvas.height() as i32 {
-                for px in 0..temp_canvas.width() as i32 {
-                    let src_idx = (py as u32 * temp_canvas.width() + px as u32) as usize;
-                    let dst_x = modal_x + px;
-                    let dst_y = btn_text_y + py;
-                    if dst_x >= 0 && dst_x < width as i32 && dst_y >= 0 && dst_y < height as i32 {
-                        let dst_idx = (dst_y as u32 * width + dst_x as u32) as usize;
-                        if dst_idx < buffer.len() && src_idx < temp_pixels.len() {
-                            let pixel = temp_pixels[src_idx];
-                            if pixel.a > 0 { buffer[dst_idx] = 0xFF000000 | ((pixel.r as u32) << 16) | ((pixel.g as u32) << 8) | (pixel.b as u32); }
-                        }
+    let temp_pixels = temp_canvas.pixels();
+    for py in 0..text_height as i32 {
+        for px in 0..text_width as i32 {
+            let src_idx = (py as u32 * text_width + px as u32) as usize;
+            let dst_x = x + px;
+            let dst_y = y + py;
+            if dst_x >= 0 && dst_x < buf_width as i32 && dst_y >= 0 && dst_y < buf_height as i32 {
+                let dst_idx = (dst_y as u32 * buf_width + dst_x as u32) as usize;
+                if dst_idx < buffer.len() && src_idx < temp_pixels.len() {
+                    let pixel = temp_pixels[src_idx];
+                    if pixel.a > 0 {
+                        // Alpha 混合
+                        let existing = buffer[dst_idx];
+                        let bg_r = ((existing >> 16) & 0xFF) as u8;
+                        let bg_g = ((existing >> 8) & 0xFF) as u8;
+                        let bg_b = (existing & 0xFF) as u8;
+                        
+                        let alpha = pixel.a as f32 / 255.0;
+                        let inv_alpha = 1.0 - alpha;
+                        
+                        let r = (pixel.r as f32 * alpha + bg_r as f32 * inv_alpha) as u8;
+                        let g = (pixel.g as f32 * alpha + bg_g as f32 * inv_alpha) as u8;
+                        let b = (pixel.b as f32 * alpha + bg_b as f32 * inv_alpha) as u8;
+                        
+                        buffer[dst_idx] = 0xFF000000 | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32);
                     }
                 }
             }
