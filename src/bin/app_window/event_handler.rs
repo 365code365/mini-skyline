@@ -2,14 +2,14 @@
 
 use std::sync::Arc;
 use std::time::Instant;
-use winit::event::MouseScrollDelta;
+use winit::event::{ElementState, MouseScrollDelta};
 use winit::window::Window;
 
 use mini_render::runtime::UiEvent;
 use mini_render::ui::interaction::InteractionType;
 
 use super::{NavigationRequest, ui_overlay::{ToastState, LoadingState, ModalState}};
-use super::events::keyboard;
+use super::events::{keyboard, ime};
 use super::interaction_handler::{handle_interaction_result, print_js_output};
 
 /// 处理 UI 事件（Toast/Loading/Modal）
