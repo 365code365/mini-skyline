@@ -1,7 +1,7 @@
 <view class="page">
   <!-- 搜索栏 -->
   <view class="search-bar">
-    <input class="search-input" placeholder="搜索商品" />
+    <input class="search-input" placeholder="搜索商品" bindinput="onSearchInput" bindconfirm="onSearch" maxlength="50" />
   </view>
 
   <!-- Banner -->
@@ -56,10 +56,10 @@
     </view>
   </view>
 
-  <!-- 新品推荐 -->
+  <!-- 新品推荐 - 大量商品列表测试 -->
   <view class="section">
     <view class="section-header">
-      <text class="section-title">✨ 新品推荐</text>
+      <text class="section-title">✨ 新品推荐 ({{newProducts.length}}件)</text>
     </view>
     
     <view class="product-list">
