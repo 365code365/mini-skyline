@@ -22,6 +22,9 @@ pub struct FocusedInput {
     pub selection_end: Option<usize>,   // 选择结束位置
     pub is_password: bool,
     pub bounds: Rect, // 输入框位置
+    pub text_offset: f32, // 文本滚动偏移（物理像素）
+    pub maxlength: i32, // 最大输入长度，-1 为不限制
+    pub input_type: String, // 输入类型：text/number/idcard/digit
 }
 
 impl FocusedInput {
@@ -71,15 +74,44 @@ impl FocusedInput {
             false
         }
     }
+    
+    /// 验证字符是否符合输入类型要求
+    pub fn validate_char(&self, c: char) -> bool {
+        match self.input_type.as_str() {
+            "number" => c.is_ascii_digit() || c == '-',
+            "digit" => c.is_ascii_digit() || c == '.',
+            "idcard" => c.is_ascii_digit() || c == 'X' || c == 'x',
+            _ => true,
+        }
+    }
+    
+    /// 检查是否可以插入更多字符（maxlength 限制）
+    pub fn can_insert(&self, insert_len: usize) -> bool {
+        if self.maxlength < 0 {
+            return true; // -1 表示不限制
+        }
+        let current_len = self.value.chars().count();
+        let selection_len = self.get_selection_range()
+            .map(|(s, e)| e - s)
+            .unwrap_or(0);
+        // 当前长度 - 选中长度 + 插入长度 <= maxlength
+        (current_len - selection_len + insert_len) <= self.maxlength as usize
+    }
 }
 
 /// 计算光标位置
 ///
 /// 根据 x 坐标（相对于输入框左边缘）和每个字符的宽度，计算光标应该在的位置
 /// 返回光标位置（字符索引）
-pub fn calculate_cursor_position(text: &str, char_widths: &[f32], click_x: f32, padding_left: f32) -> usize {
-    // 减去左边距后的点击位置
-    let click_offset = click_x - padding_left;
+/// 
+/// - text: 输入框文本
+/// - char_widths: 每个字符的宽度（物理像素）
+/// - click_x: 点击位置相对于输入框左边缘（物理像素）
+/// - padding_left: 左边距（物理像素）
+/// - text_offset: 文本滚动偏移（物理像素，负值表示向左滚动）
+pub fn calculate_cursor_position(text: &str, char_widths: &[f32], click_x: f32, padding_left: f32, text_offset: f32) -> usize {
+    // 减去左边距后的点击位置，再减去文本偏移（因为文本向左滚动时，点击位置相对于文本起点更靠右）
+    let click_offset = click_x - padding_left - text_offset;
 
     if click_offset <= 0.0 {
         // 点击在文本左侧，光标在开头
@@ -343,6 +375,9 @@ impl InteractionManager {
                     selection_end: None,
                     is_password: false,
                     bounds: element.bounds,
+                    text_offset: 0.0, // 初始偏移为0，会在渲染时更新
+                    maxlength: 140, // 默认值，会在外部更新
+                    input_type: "text".to_string(), // 默认值，会在外部更新
                 });
 
                 // 记录点击位置用于后续计算光标位置
@@ -400,6 +435,16 @@ impl InteractionManager {
         
         match key {
             KeyInput::Char(c) => {
+                // 验证字符是否符合输入类型
+                if !input.validate_char(c) {
+                    return None;
+                }
+                
+                // 检查 maxlength 限制
+                if !input.can_insert(1) {
+                    return None;
+                }
+                
                 // 如果有选中文本，先删除
                 input.delete_selection();
                 
@@ -539,16 +584,55 @@ impl InteractionManager {
                 None
             }
             KeyInput::Paste(text) => {
-                // 如果有选中文本，先删除
-                input.delete_selection();
+                // 过滤不符合输入类型的字符
+                let filtered_text: String = text.chars()
+                    .filter(|&c| input.validate_char(c))
+                    .collect();
                 
-                // 插入粘贴的文本
-                let mut chars: Vec<char> = input.value.chars().collect();
-                for (i, c) in text.chars().enumerate() {
-                    chars.insert(input.cursor_pos + i, c);
+                if filtered_text.is_empty() {
+                    return None;
                 }
-                input.value = chars.into_iter().collect();
-                input.cursor_pos += text.chars().count();
+                
+                // 检查 maxlength 限制
+                let insert_len = filtered_text.chars().count();
+                if !input.can_insert(insert_len) {
+                    // 截断到允许的长度
+                    let current_len = input.value.chars().count();
+                    let selection_len = input.get_selection_range()
+                        .map(|(s, e)| e - s)
+                        .unwrap_or(0);
+                    let max_insert = if input.maxlength < 0 {
+                        insert_len
+                    } else {
+                        (input.maxlength as usize).saturating_sub(current_len - selection_len)
+                    };
+                    if max_insert == 0 {
+                        return None;
+                    }
+                    let truncated: String = filtered_text.chars().take(max_insert).collect();
+                    
+                    // 如果有选中文本，先删除
+                    input.delete_selection();
+                    
+                    // 插入截断后的文本
+                    let mut chars: Vec<char> = input.value.chars().collect();
+                    for (i, c) in truncated.chars().enumerate() {
+                        chars.insert(input.cursor_pos + i, c);
+                    }
+                    input.value = chars.into_iter().collect();
+                    input.cursor_pos += truncated.chars().count();
+                } else {
+                    // 如果有选中文本，先删除
+                    input.delete_selection();
+                    
+                    // 插入粘贴的文本
+                    let mut chars: Vec<char> = input.value.chars().collect();
+                    for (i, c) in filtered_text.chars().enumerate() {
+                        chars.insert(input.cursor_pos + i, c);
+                    }
+                    input.value = chars.into_iter().collect();
+                    input.cursor_pos += filtered_text.chars().count();
+                }
                 
                 self.states.insert(input.id.clone(), ComponentState {
                     checked: false,
@@ -603,7 +687,16 @@ impl InteractionManager {
                 input.selection_end = Some(len);
                 None
             }
-            KeyInput::Enter | KeyInput::Escape => {
+            KeyInput::Enter => {
+                // Enter 键触发 confirm 事件
+                let id = input.id.clone();
+                let value = input.value.clone();
+                // 注意：confirm 事件不一定要失焦，取决于 confirm-hold 属性
+                // 这里默认失焦，如果需要保持焦点，可以在外部处理
+                self.focused_input = None;
+                Some(InteractionResult::InputConfirm { id, value })
+            }
+            KeyInput::Escape => {
                 let id = input.id.clone();
                 let value = input.value.clone();
                 self.focused_input = None;
@@ -647,7 +740,22 @@ impl InteractionManager {
         self.selection_anchor = None;
     }
     
-    /// 开始文本选择（鼠标按下时调用）
+    /// 准备文本选择（鼠标按下时调用）
+    /// 只移动光标到点击位置，清除之前的选择，记录锚点位置
+    /// 实际选择在鼠标移动时才开始
+    pub fn prepare_text_selection(&mut self, cursor_pos: usize) {
+        if let Some(input) = &mut self.focused_input {
+            // 清除之前的选择
+            input.clear_selection();
+            // 移动光标到点击位置
+            input.cursor_pos = cursor_pos;
+            // 记录锚点位置，但不开始选择
+            self.selection_anchor = Some(cursor_pos);
+            self.is_selecting_text = false; // 还没开始选择
+        }
+    }
+    
+    /// 开始文本选择（鼠标按下时调用，用于需要立即开始选择的情况）
     pub fn begin_text_selection(&mut self, cursor_pos: usize) {
         if let Some(input) = &mut self.focused_input {
             self.is_selecting_text = true;
@@ -660,13 +768,16 @@ impl InteractionManager {
     
     /// 更新文本选择（鼠标移动时调用）
     pub fn update_text_selection(&mut self, cursor_pos: usize) {
-        if self.is_selecting_text {
-            if let Some(anchor) = self.selection_anchor {
-                if let Some(input) = &mut self.focused_input {
+        // 如果有锚点但还没开始选择，现在开始
+        if let Some(anchor) = self.selection_anchor {
+            if let Some(input) = &mut self.focused_input {
+                // 只有当光标位置与锚点不同时才开始选择
+                if cursor_pos != anchor {
+                    self.is_selecting_text = true;
                     input.selection_start = Some(anchor);
                     input.selection_end = Some(cursor_pos);
-                    input.cursor_pos = cursor_pos;
                 }
+                input.cursor_pos = cursor_pos;
             }
         }
     }
@@ -674,6 +785,7 @@ impl InteractionManager {
     /// 结束文本选择（鼠标释放时调用）
     pub fn end_text_selection(&mut self) {
         self.is_selecting_text = false;
+        self.selection_anchor = None;
         // 如果选择范围为空，清除选择
         if let Some(input) = &mut self.focused_input {
             if let (Some(start), Some(end)) = (input.selection_start, input.selection_end) {
@@ -684,8 +796,13 @@ impl InteractionManager {
         }
     }
     
-    /// 是否正在选择文本
+    /// 是否正在选择文本（或准备选择）
     pub fn is_selecting(&self) -> bool {
+        self.selection_anchor.is_some()
+    }
+    
+    /// 是否真正在拖动选择（有实际的选择范围）
+    pub fn is_dragging_selection(&self) -> bool {
         self.is_selecting_text
     }
     
@@ -771,6 +888,7 @@ pub enum InteractionResult {
     Focus { id: String, bounds: Rect, click_x: f32, is_fixed: bool },
     InputChange { id: String, value: String },
     InputBlur { id: String, value: String },
+    InputConfirm { id: String, value: String }, // 按下回车/完成键
     ButtonClick { id: String, bounds: Rect },
     CopyText { text: String },
     CutText { text: String, id: String, value: String },

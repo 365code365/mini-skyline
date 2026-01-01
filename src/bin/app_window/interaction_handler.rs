@@ -94,6 +94,24 @@ pub fn handle_interaction_result(
                 }
             }
         }
+        InteractionResult::InputConfirm { id, value } => {
+            println!("📝 Confirm {}: {}", id, value);
+            if let Some(window) = window {
+                window.set_ime_allowed(false);
+            }
+            if let Some(renderer) = renderer {
+                for binding in renderer.get_event_bindings() {
+                    if binding.event_type == "confirm" {
+                        let mut event_data = binding.data.clone();
+                        event_data.insert("value".to_string(), value.clone());
+                        let data_json = serde_json::to_string(&event_data).unwrap_or("{}".to_string());
+                        let call_code = format!("__callPageMethod('{}', {})", binding.handler, data_json);
+                        app.eval(&call_code).ok();
+                        break;
+                    }
+                }
+            }
+        }
         InteractionResult::ButtonClick { id, bounds: _ } => {
             println!("🔘 Button clicked: {}", id);
         }

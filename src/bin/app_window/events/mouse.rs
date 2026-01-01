@@ -192,6 +192,7 @@ pub fn handle_content_click(
                     let font_size = 16.0 * sf;
                     let padding_left = 12.0 * sf;
                     let click_x_physical = *click_x * sf;
+                    let text_offset = focused.text_offset;
                     
                     let mut char_widths = Vec::new();
                     for c in focused.value.chars() {
@@ -201,10 +202,27 @@ pub fn handle_content_click(
                     }
                     
                     use mini_render::ui::interaction::calculate_cursor_position;
-                    let cursor_pos = calculate_cursor_position(&focused.value, &char_widths, click_x_physical, padding_left);
+                    let cursor_pos = calculate_cursor_position(&focused.value, &char_widths, click_x_physical, padding_left, text_offset);
                     
                     if let Some(input) = &mut interaction.focused_input {
                         input.cursor_pos = cursor_pos;
+                    }
+                }
+            }
+            
+            // 设置输入框的 maxlength 和 input_type
+            if let Some(renderer) = renderer {
+                if let Some(binding) = renderer.hit_test(x, adjusted_y) {
+                    if let Some(input) = &mut interaction.focused_input {
+                        // 从 binding.data 或渲染节点获取属性
+                        if let Some(maxlength_str) = binding.data.get("maxlength") {
+                            if let Ok(maxlength) = maxlength_str.parse::<i32>() {
+                                input.maxlength = maxlength;
+                            }
+                        }
+                        if let Some(input_type) = binding.data.get("type") {
+                            input.input_type = input_type.clone();
+                        }
                     }
                 }
             }

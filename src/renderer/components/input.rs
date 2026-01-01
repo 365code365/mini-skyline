@@ -1,17 +1,47 @@
 //! input 组件 - 输入框
 //! 
-//! 支持完整的 CSS 样式，同时保留微信默认样式作为 fallback
+//! 微信小程序 input 组件的完整实现
 //! 
-//! 属性：
-//! - value: 输入框的值
-//! - type: text / number / idcard / digit / safe-password / nickname
-//! - password: 是否是密码类型
-//! - placeholder: 占位符
-//! - placeholder-style: 占位符样式
-//! - placeholder-class: 占位符样式类
-//! - disabled: 是否禁用
-//! - maxlength: 最大输入长度
-//! - focus: 是否获取焦点
+//! ## 属性
+//! 
+//! | 属性 | 类型 | 默认值 | 说明 |
+//! |------|------|--------|------|
+//! | value | string | | 输入框的初始内容 |
+//! | type | string | text | 输入类型：text/number/idcard/digit/safe-password/nickname |
+//! | password | boolean | false | 是否是密码类型 |
+//! | placeholder | string | | 输入框为空时占位符 |
+//! | placeholder-style | string | | 占位符的样式（仅支持 color） |
+//! | placeholder-class | string | input-placeholder | 占位符的样式类 |
+//! | disabled | boolean | false | 是否禁用 |
+//! | maxlength | number | 140 | 最大输入长度，-1 为不限制 |
+//! | cursor-spacing | number | 0 | 光标与键盘的距离（px） |
+//! | focus | boolean | false | 获取焦点 |
+//! | confirm-type | string | done | 键盘右下角按钮文字：send/search/next/go/done |
+//! | confirm-hold | boolean | false | 点击键盘确认按钮时是否保持键盘不收起 |
+//! | cursor | number | | 指定 focus 时的光标位置 |
+//! | selection-start | number | -1 | 光标起始位置，需与 selection-end 搭配使用 |
+//! | selection-end | number | -1 | 光标结束位置，需与 selection-start 搭配使用 |
+//! | adjust-position | boolean | true | 键盘弹起时，是否自动上推页面 |
+//! 
+//! ## 事件
+//! 
+//! | 事件 | 说明 | 返回值 |
+//! |------|------|--------|
+//! | bindinput | 输入时触发 | event.detail = {value, cursor, keyCode} |
+//! | bindfocus | 聚焦时触发 | event.detail = {value, height} |
+//! | bindblur | 失焦时触发 | event.detail = {value} |
+//! | bindconfirm | 点击完成按钮时触发 | event.detail = {value} |
+//! 
+//! ## CSS 支持
+//! 
+//! 支持完整的 CSS 样式，包括：
+//! - width/height
+//! - padding
+//! - background-color
+//! - border/border-radius
+//! - font-size/color
+//! - box-shadow
+//! - opacity
 
 use super::base::*;
 use crate::parser::wxml::WxmlNode;
@@ -23,6 +53,9 @@ use std::sync::OnceLock;
 
 /// 光标闪烁周期（毫秒）
 const CURSOR_BLINK_INTERVAL_MS: u64 = 530;
+
+/// 默认最大输入长度
+const DEFAULT_MAXLENGTH: i32 = 140;
 
 /// 获取程序启动时间（用于计算光标闪烁）
 static START_TIME: OnceLock<Instant> = OnceLock::new();
@@ -38,6 +71,132 @@ fn should_show_cursor() -> bool {
     (elapsed / CURSOR_BLINK_INTERVAL_MS) % 2 == 0
 }
 
+/// 输入类型
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum InputType {
+    Text,
+    Number,
+    IdCard,
+    Digit,
+    SafePassword,
+    Nickname,
+}
+
+impl InputType {
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "number" => Self::Number,
+            "idcard" => Self::IdCard,
+            "digit" => Self::Digit,
+            "safe-password" => Self::SafePassword,
+            "nickname" => Self::Nickname,
+            _ => Self::Text,
+        }
+    }
+    
+    /// 验证输入字符是否符合类型要求
+    pub fn validate_char(&self, c: char) -> bool {
+        match self {
+            Self::Number => c.is_ascii_digit() || c == '-',
+            Self::Digit => c.is_ascii_digit() || c == '.',
+            Self::IdCard => c.is_ascii_digit() || c == 'X' || c == 'x',
+            _ => true,
+        }
+    }
+    
+    /// 验证完整输入是否符合类型要求
+    pub fn validate_input(&self, input: &str) -> bool {
+        match self {
+            Self::Number => input.chars().all(|c| c.is_ascii_digit() || c == '-'),
+            Self::Digit => {
+                let dot_count = input.chars().filter(|&c| c == '.').count();
+                dot_count <= 1 && input.chars().all(|c| c.is_ascii_digit() || c == '.')
+            }
+            Self::IdCard => {
+                input.len() <= 18 && input.chars().all(|c| c.is_ascii_digit() || c == 'X' || c == 'x')
+            }
+            _ => true,
+        }
+    }
+}
+
+/// 确认按钮类型
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ConfirmType {
+    Send,
+    Search,
+    Next,
+    Go,
+    Done,
+}
+
+impl ConfirmType {
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "send" => Self::Send,
+            "search" => Self::Search,
+            "next" => Self::Next,
+            "go" => Self::Go,
+            _ => Self::Done,
+        }
+    }
+}
+
+/// 解析 placeholder-style 属性
+fn parse_placeholder_style(style_str: &str) -> Option<Color> {
+    // 支持格式: "color: #999999" 或 "color: rgb(153, 153, 153)"
+    for part in style_str.split(';') {
+        let part = part.trim();
+        if part.starts_with("color:") {
+            let color_str = part.trim_start_matches("color:").trim();
+            return parse_color_value(color_str);
+        }
+    }
+    None
+}
+
+/// 解析颜色值
+fn parse_color_value(s: &str) -> Option<Color> {
+    let s = s.trim();
+    if s.starts_with('#') {
+        // 十六进制颜色
+        let hex = s.trim_start_matches('#');
+        if hex.len() == 6 {
+            if let Ok(val) = u32::from_str_radix(hex, 16) {
+                return Some(Color::from_hex(val));
+            }
+        } else if hex.len() == 3 {
+            // 短格式 #RGB -> #RRGGBB
+            let r = u8::from_str_radix(&hex[0..1], 16).ok()?;
+            let g = u8::from_str_radix(&hex[1..2], 16).ok()?;
+            let b = u8::from_str_radix(&hex[2..3], 16).ok()?;
+            return Some(Color::new(r * 17, g * 17, b * 17, 255));
+        }
+    } else if s.starts_with("rgb(") && s.ends_with(')') {
+        // rgb(r, g, b) 格式
+        let inner = &s[4..s.len()-1];
+        let parts: Vec<&str> = inner.split(',').collect();
+        if parts.len() == 3 {
+            let r = parts[0].trim().parse::<u8>().ok()?;
+            let g = parts[1].trim().parse::<u8>().ok()?;
+            let b = parts[2].trim().parse::<u8>().ok()?;
+            return Some(Color::new(r, g, b, 255));
+        }
+    } else if s.starts_with("rgba(") && s.ends_with(')') {
+        // rgba(r, g, b, a) 格式
+        let inner = &s[5..s.len()-1];
+        let parts: Vec<&str> = inner.split(',').collect();
+        if parts.len() == 4 {
+            let r = parts[0].trim().parse::<u8>().ok()?;
+            let g = parts[1].trim().parse::<u8>().ok()?;
+            let b = parts[2].trim().parse::<u8>().ok()?;
+            let a = parts[3].trim().parse::<f32>().ok()?;
+            return Some(Color::new(r, g, b, (a * 255.0) as u8));
+        }
+    }
+    None
+}
+
 pub struct InputComponent;
 
 impl InputComponent {
@@ -48,10 +207,30 @@ impl InputComponent {
         let attrs = node.attributes.clone();
         let sf = ctx.scale_factor;
         
+        // 解析属性
         let value = node.get_attr("value").unwrap_or("");
         let placeholder = node.get_attr("placeholder").unwrap_or("");
-        let password = node.get_attr("password").map(|s| s == "true" || s == "{{true}}").unwrap_or(false);
+        let input_type = InputType::from_str(node.get_attr("type").unwrap_or("text"));
+        let password = node.get_attr("password").map(|s| s == "true" || s == "{{true}}").unwrap_or(false)
+            || input_type == InputType::SafePassword;
         let disabled = node.get_attr("disabled").map(|s| s == "true" || s == "{{true}}").unwrap_or(false);
+        let _maxlength = node.get_attr("maxlength")
+            .and_then(|s| s.parse::<i32>().ok())
+            .unwrap_or(DEFAULT_MAXLENGTH);
+        let _focus = node.get_attr("focus").map(|s| s == "true" || s == "{{true}}").unwrap_or(false);
+        let _cursor = node.get_attr("cursor").and_then(|s| s.parse::<usize>().ok());
+        let _selection_start = node.get_attr("selection-start").and_then(|s| s.parse::<i32>().ok()).unwrap_or(-1);
+        let _selection_end = node.get_attr("selection-end").and_then(|s| s.parse::<i32>().ok()).unwrap_or(-1);
+        let _confirm_type = ConfirmType::from_str(node.get_attr("confirm-type").unwrap_or("done"));
+        let _confirm_hold = node.get_attr("confirm-hold").map(|s| s == "true" || s == "{{true}}").unwrap_or(false);
+        let _adjust_position = node.get_attr("adjust-position").map(|s| s != "false" && s != "{{false}}").unwrap_or(true);
+        let _cursor_spacing = node.get_attr("cursor-spacing").and_then(|s| s.parse::<f32>().ok()).unwrap_or(0.0);
+        
+        // 解析 placeholder 样式
+        let placeholder_color = node.get_attr("placeholder-style")
+            .and_then(|s| parse_placeholder_style(s))
+            .unwrap_or(Color::from_hex(0xBFBFBF));
+        
         let is_textarea = node.tag_name == "textarea";
         
         // 检查 CSS 是否定义了样式
@@ -117,7 +296,7 @@ impl InputComponent {
         let display_text = if value.is_empty() {
             placeholder.to_string()
         } else if password {
-            "•".repeat(value.len())
+            "•".repeat(value.chars().count())
         } else {
             value.to_string()
         };
@@ -125,7 +304,7 @@ impl InputComponent {
         // 文本颜色 - 只在没有自定义颜色时使用默认值
         if ns.text_color.is_none() {
             ns.text_color = Some(if value.is_empty() {
-                Color::from_hex(0xBFBFBF) // placeholder 颜色
+                placeholder_color
             } else if disabled {
                 Color::from_hex(0xBFBFBF)
             } else {
@@ -274,13 +453,31 @@ impl InputComponent {
             let clip_h = h;
             canvas.clip_rect(GeoRect::new(clip_x, clip_y, clip_w, clip_h));
             
-            // 绘制选中背景
+            // 先计算文本偏移（用于所有绘制）
+            let text_width = if !node.text.is_empty() {
+                tr.measure_text(&node.text, font_size)
+            } else {
+                0.0
+            };
+            let available_width = w - padding_left - padding_right;
+            
+            let mut text_offset = 0.0;
+            if focused && text_width > available_width {
+                let cursor_text: String = node.text.chars().take(cursor_pos).collect();
+                let cursor_x_in_text = tr.measure_text(&cursor_text, font_size);
+                
+                if cursor_x_in_text > available_width {
+                    text_offset = available_width - cursor_x_in_text - font_size;
+                }
+            }
+            
+            // 绘制选中背景（需要考虑 text_offset）
             if let Some((sel_start, sel_end)) = selection {
                 if sel_start != sel_end && focused {
                     let start_text: String = node.text.chars().take(sel_start).collect();
                     let sel_text: String = node.text.chars().skip(sel_start).take(sel_end - sel_start).collect();
                     
-                    let sel_x = text_x + tr.measure_text(&start_text, font_size);
+                    let sel_x = text_x + tr.measure_text(&start_text, font_size) + text_offset;
                     let sel_w = tr.measure_text(&sel_text, font_size);
                     let sel_y = y + (h - font_size) / 2.0 - 2.0 * sf;
                     let sel_h = font_size + 4.0 * sf;
@@ -297,22 +494,6 @@ impl InputComponent {
             let paint = Paint::new().with_color(color).with_style(PaintStyle::Fill);
             
             if !node.text.is_empty() {
-                let text_width = tr.measure_text(&node.text, font_size);
-                let available_width = w - padding_left - padding_right;
-                
-                // 计算文本偏移，当文本超出时，让光标位置可见
-                let mut text_offset = 0.0;
-                if focused && text_width > available_width {
-                    // 计算光标位置
-                    let cursor_text: String = node.text.chars().take(cursor_pos).collect();
-                    let cursor_x_in_text = tr.measure_text(&cursor_text, font_size);
-                    
-                    // 如果光标超出可见区域右边，向左滚动
-                    if cursor_x_in_text > available_width {
-                        text_offset = available_width - cursor_x_in_text - font_size; // 留一个字符的空间
-                    }
-                }
-                
                 // 根据 text-align 调整 x 位置
                 let final_x = match style.text_align {
                     TextAlign::Center if text_width <= available_width => {
@@ -330,17 +511,6 @@ impl InputComponent {
             // 绘制光标（只在没有选中或选中范围为空时显示，带闪烁效果）
             if focused && selection.map(|(s, e)| s == e).unwrap_or(true) && should_show_cursor() {
                 let cursor_text: String = node.text.chars().take(cursor_pos).collect();
-                let text_width = tr.measure_text(&node.text, font_size);
-                let available_width = w - padding_left - padding_right;
-                
-                // 计算文本偏移（与上面保持一致）
-                let mut text_offset = 0.0;
-                if text_width > available_width {
-                    let cursor_x_in_text = tr.measure_text(&cursor_text, font_size);
-                    if cursor_x_in_text > available_width {
-                        text_offset = available_width - cursor_x_in_text - font_size;
-                    }
-                }
                 
                 let cursor_x = text_x + tr.measure_text(&cursor_text, font_size) + text_offset;
                 let cursor_y1 = y + (h - font_size) / 2.0;
@@ -360,4 +530,29 @@ impl InputComponent {
             canvas.restore();
         }
     }
+}
+
+/// 获取输入框的 maxlength 属性
+pub fn get_maxlength(attrs: &std::collections::HashMap<String, String>) -> i32 {
+    attrs.get("maxlength")
+        .and_then(|s| s.parse::<i32>().ok())
+        .unwrap_or(DEFAULT_MAXLENGTH)
+}
+
+/// 获取输入框的 type 属性
+pub fn get_input_type(attrs: &std::collections::HashMap<String, String>) -> InputType {
+    attrs.get("type")
+        .map(|s| InputType::from_str(s))
+        .unwrap_or(InputType::Text)
+}
+
+/// 检查输入框是否为密码类型
+pub fn is_password(attrs: &std::collections::HashMap<String, String>) -> bool {
+    attrs.get("password").map(|s| s == "true" || s == "{{true}}").unwrap_or(false)
+        || get_input_type(attrs) == InputType::SafePassword
+}
+
+/// 检查输入框是否禁用
+pub fn is_disabled(attrs: &std::collections::HashMap<String, String>) -> bool {
+    attrs.get("disabled").map(|s| s == "true" || s == "{{true}}").unwrap_or(false)
 }

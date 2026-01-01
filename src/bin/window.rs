@@ -749,6 +749,7 @@ impl ApplicationHandler for MiniAppWindow {
                             let font_size = 16.0 * sf;
                             let padding_left = 12.0 * sf;
                             let bounds = focused.bounds;
+                            let text_offset = focused.text_offset;
                             let click_x = ((x - bounds.x) * sf).max(0.0);
                             
                             let mut char_widths = Vec::new();
@@ -759,7 +760,7 @@ impl ApplicationHandler for MiniAppWindow {
                             }
                             
                             let cursor_pos = mini_render::ui::interaction::calculate_cursor_position(
-                                &focused.value, &char_widths, click_x, padding_left
+                                &focused.value, &char_widths, click_x, padding_left, text_offset
                             );
                             
                             self.interaction.update_text_selection(cursor_pos);
@@ -872,9 +873,10 @@ impl ApplicationHandler for MiniAppWindow {
                         
                         let actual_y = y + self.scroll.get_position();
                         
-                        // 检查是否点击在已聚焦的输入框内（用于文本选择）
+                        // 检查是否点击在已聚焦的输入框内（用于移动光标或开始选择）
                         if let Some(focused) = &self.interaction.focused_input {
                             let bounds = focused.bounds;
+                            let text_offset = focused.text_offset;
                             // 检查点击是否在输入框内（考虑 fixed 和普通元素）
                             let click_in_input = (x >= bounds.x && x <= bounds.x + bounds.width &&
                                                   y >= bounds.y - self.scroll.get_position() && 
@@ -883,7 +885,7 @@ impl ApplicationHandler for MiniAppWindow {
                                                   actual_y >= bounds.y && actual_y <= bounds.y + bounds.height);
                             
                             if click_in_input {
-                                // 计算光标位置并开始选择
+                                // 计算光标位置，准备可能的选择操作
                                 if let Some(tr) = &self.text_renderer {
                                     let sf = self.scale_factor as f32;
                                     let font_size = 16.0 * sf;
@@ -898,10 +900,11 @@ impl ApplicationHandler for MiniAppWindow {
                                     }
                                     
                                     let cursor_pos = mini_render::ui::interaction::calculate_cursor_position(
-                                        &focused.value, &char_widths, click_x, padding_left
+                                        &focused.value, &char_widths, click_x, padding_left, text_offset
                                     );
                                     
-                                    self.interaction.begin_text_selection(cursor_pos);
+                                    // 只准备选择，不立即开始（等待拖动）
+                                    self.interaction.prepare_text_selection(cursor_pos);
                                     self.needs_redraw = true;
                                     if let Some(w) = &self.window { w.request_redraw(); }
                                     return;
@@ -996,12 +999,14 @@ impl ApplicationHandler for MiniAppWindow {
                         self.interaction.clear_button_pressed();
                         
                         // 结束文本选择
-                        let was_selecting = self.interaction.is_selecting();
-                        if was_selecting {
-                            self.interaction.end_text_selection();
+                        // 只有真正拖动选择时才阻止点击事件
+                        let was_dragging_selection = self.interaction.is_dragging_selection();
+                        self.interaction.end_text_selection();
+                        
+                        if was_dragging_selection {
                             self.needs_redraw = true;
                             if let Some(w) = &self.window { w.request_redraw(); }
-                            // 如果是文本选择，不触发点击事件
+                            // 如果是拖动选择，不触发点击事件
                             return;
                         }
                         

@@ -220,12 +220,25 @@ pub fn parse_color_str(s: &str) -> Option<Color> {
 /// 提取事件绑定
 pub fn extract_events(node: &WxmlNode) -> Vec<(String, String, HashMap<String, String>)> {
     let mut events = vec![];
-    for attr in ["bindtap", "catchtap", "bindchange", "bindinput", "bindblur", "bindfocus"] {
+    for attr in ["bindtap", "catchtap", "bindchange", "bindinput", "bindblur", "bindfocus", "bindconfirm", "bindlinechange"] {
         if let Some(h) = node.get_attr(attr) {
             let mut d = HashMap::new();
+            // 添加 data-* 属性
             for (k, v) in &node.attributes {
                 if k.starts_with("data-") { 
                     d.insert(k[5..].into(), v.clone()); 
+                }
+            }
+            // 对于 input/textarea，添加相关属性到事件数据
+            if node.tag_name == "input" || node.tag_name == "textarea" {
+                if let Some(v) = node.get_attr("maxlength") {
+                    d.insert("maxlength".into(), v.into());
+                }
+                if let Some(v) = node.get_attr("type") {
+                    d.insert("type".into(), v.into());
+                }
+                if let Some(v) = node.get_attr("password") {
+                    d.insert("password".into(), v.into());
                 }
             }
             let event_type = attr.trim_start_matches("bind").trim_start_matches("catch");

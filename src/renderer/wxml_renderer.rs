@@ -666,6 +666,32 @@ impl WxmlRenderer {
                     &node_to_draw, canvas, self.text_renderer.as_ref(), 
                     x, y, w, h, sf, focused, cursor_pos, selection
                 );
+                
+                // 更新 text_offset（用于点击位置计算）
+                if focused {
+                    if let Some(tr) = self.text_renderer.as_ref() {
+                        let font_size = node_to_draw.style.font_size * sf;
+                        let padding_left = 12.0 * sf;
+                        let padding_right = 12.0 * sf;
+                        let available_width = w - padding_left - padding_right;
+                        
+                        let text_width = tr.measure_text(&node_to_draw.text, font_size);
+                        let mut text_offset = 0.0;
+                        
+                        if text_width > available_width {
+                            let cursor_text: String = node_to_draw.text.chars().take(cursor_pos).collect();
+                            let cursor_x_in_text = tr.measure_text(&cursor_text, font_size);
+                            
+                            if cursor_x_in_text > available_width {
+                                text_offset = available_width - cursor_x_in_text - font_size;
+                            }
+                        }
+                        
+                        if let Some(input) = &mut interaction.focused_input {
+                            input.text_offset = text_offset;
+                        }
+                    }
+                }
             }
             "button" => {
                 let pressed = interaction.is_button_pressed(&component_id);
@@ -1036,6 +1062,32 @@ impl WxmlRenderer {
                     &node_to_draw, canvas, self.text_renderer.as_ref(), 
                     x, y, w, h, sf, focused, cursor_pos, selection
                 );
+                
+                // 更新 text_offset（用于点击位置计算）
+                if focused {
+                    if let Some(tr) = self.text_renderer.as_ref() {
+                        let font_size = node_to_draw.style.font_size * sf;
+                        let padding_left = 12.0 * sf;
+                        let padding_right = 12.0 * sf;
+                        let available_width = w - padding_left - padding_right;
+                        
+                        let text_width = tr.measure_text(&node_to_draw.text, font_size);
+                        let mut text_offset = 0.0;
+                        
+                        if text_width > available_width {
+                            let cursor_text: String = node_to_draw.text.chars().take(cursor_pos).collect();
+                            let cursor_x_in_text = tr.measure_text(&cursor_text, font_size);
+                            
+                            if cursor_x_in_text > available_width {
+                                text_offset = available_width - cursor_x_in_text - font_size;
+                            }
+                        }
+                        
+                        if let Some(input) = &mut interaction.focused_input {
+                            input.text_offset = text_offset;
+                        }
+                    }
+                }
             }
             "button" => {
                 let pressed = interaction.is_button_pressed(&component_id);
