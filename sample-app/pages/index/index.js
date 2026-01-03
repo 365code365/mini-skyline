@@ -114,5 +114,10 @@ Page({
   onCanvasTap: function() {
     console.log('🎨 进入 Canvas 示例');
     wx.navigateTo({ url: '/pages/canvas/canvas' });
+  },
+
+  onComponentsTap: function() {
+    console.log('🧩 进入组件示例');
+    wx.navigateTo({ url: '/pages/components/components' });
   }
 });

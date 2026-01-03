@@ -1,0 +1,50 @@
+<view class="page">
+  <!-- 收货地址列表 -->
+  <view class="address-list" wx:if="{{addresses.length > 0}}">
+    <view class="address-item" wx:for="{{addresses}}" wx:key="id">
+      <view class="address-info" bindtap="onSelectAddress" data-id="{{item.id}}">
+        <view class="address-header">
+          <text class="name">{{item.name}}</text>
+          <text class="phone">{{item.phone}}</text>
+          <view class="default-badge" wx:if="{{item.isDefault}}">默认</view>
+        </view>
+        <text class="address-text">{{item.address}}</text>
+      </view>
+      <view class="address-actions">
+        <view class="action-item" bindtap="onSetDefault" data-id="{{item.id}}" wx:if="{{!item.isDefault}}">
+          <text class="action-text">设为默认</text>
+        </view>
+        <view class="action-item" bindtap="onEditAddress" data-id="{{item.id}}">
+          <text class="action-text">编辑</text>
+        </view>
+        <view class="action-item delete" bindtap="onDeleteAddress" data-id="{{item.id}}">
+          <text class="action-text">删除</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 空状态 -->
+  <view class="empty-state" wx:if="{{addresses.length === 0}}">
+    <view class="empty-icon">
+      <icon type="info" size="80" color="#ccc"></icon>
+    </view>
+    <text class="empty-text">暂无收货地址</text>
+  </view>
+
+  <!-- 添加地址按钮 -->
+  <view class="add-btn-wrapper">
+    <button class="add-btn" bindtap="onAddAddress">添加新地址</button>
+  </view>
+
+  <!-- 底部结算栏 (仅结算页面显示) -->
+  <view class="checkout-bar" wx:if="{{isCheckout}}">
+    <view class="checkout-info">
+      <text class="checkout-total">合计: ¥{{checkoutTotal}}</text>
+      <text class="checkout-count">共{{checkoutCount}}件商品</text>
+    </view>
+    <button class="checkout-btn" bindtap="onConfirmOrder">提交订单</button>
+  </view>
+
+  <view class="bottom-space" style="height: {{isCheckout ? '120rpx' : '20rpx'}};"></view>
+</view>

@@ -1,0 +1,76 @@
+<view class="container">
+  <view class="header">
+    <text class="title">组件示例</text>
+  </view>
+
+  <!-- Swiper 轮播图 -->
+  <view class="section">
+    <text class="section-title">Swiper 轮播图</text>
+    <swiper class="swiper" indicator-dots="true" autoplay="true" interval="3000" circular="true">
+      <swiper-item class="swiper-item" style="background-color: #FF6B35;">
+        <text class="swiper-text">第一页</text>
+      </swiper-item>
+      <swiper-item class="swiper-item" style="background-color: #07c160;">
+        <text class="swiper-text">第二页</text>
+      </swiper-item>
+      <swiper-item class="swiper-item" style="background-color: #1890ff;">
+        <text class="swiper-text">第三页</text>
+      </swiper-item>
+    </swiper>
+  </view>
+
+  <!-- Picker 选择器 -->
+  <view class="section">
+    <text class="section-title">Picker 选择器</text>
+    <picker mode="selector" range="{{pickerRange}}" value="{{pickerValue}}" bindchange="onPickerChange">
+      <view class="picker-item">
+        <text>当前选择：{{pickerRange[pickerValue]}}</text>
+      </view>
+    </picker>
+  </view>
+
+  <!-- Rich-text 富文本 -->
+  <view class="section">
+    <text class="section-title">Rich-text 富文本</text>
+    <rich-text nodes="{{richTextNodes}}" class="rich-text-box"></rich-text>
+  </view>
+
+  <!-- Checkbox Group -->
+  <view class="section">
+    <text class="section-title">Checkbox Group</text>
+    <checkbox-group bindchange="onCheckboxChange">
+      <view class="checkbox-item">
+        <checkbox value="apple" checked="true"></checkbox>
+        <text>苹果</text>
+      </view>
+      <view class="checkbox-item">
+        <checkbox value="banana"></checkbox>
+        <text>香蕉</text>
+      </view>
+      <view class="checkbox-item">
+        <checkbox value="orange"></checkbox>
+        <text>橙子</text>
+      </view>
+    </checkbox-group>
+  </view>
+
+  <!-- Radio Group -->
+  <view class="section">
+    <text class="section-title">Radio Group</text>
+    <radio-group bindchange="onRadioChange">
+      <view class="radio-item">
+        <radio value="male" checked="true"></radio>
+        <text>男</text>
+      </view>
+      <view class="radio-item">
+        <radio value="female"></radio>
+        <text>女</text>
+      </view>
+    </radio-group>
+  </view>
+
+  <!-- 返回按钮 -->
+  <view class="back-btn" bindtap="onBack">
+    <text class="back-text">返回首页</text>
+  </view>
+</view>

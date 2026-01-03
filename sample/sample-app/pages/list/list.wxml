@@ -1,0 +1,74 @@
+<view class="page">
+  <!-- 页面标题 -->
+  <view class="page-header">
+    <text class="page-title">表单组件</text>
+    <text class="page-desc">Form Components</text>
+  </view>
+
+  <!-- 输入框组件 -->
+  <view class="section">
+    <view class="section-header">
+      <icon type="search" size="20"></icon>
+      <text class="section-title">输入框 Input</text>
+    </view>
+    <view class="input-group">
+      <view class="input-item" wx:for="{{inputList}}" wx:key="id">
+        <text class="input-label">{{item.label}}</text>
+        <input class="input-field {{item.disabled ? 'input-disabled' : ''}}" 
+               placeholder="{{item.placeholder}}" 
+               value="{{item.value}}"
+               disabled="{{item.disabled}}"
+               type="{{item.type}}"></input>
+      </view>
+    </view>
+  </view>
+
+  <!-- 复选框组件 -->
+  <view class="section">
+    <view class="section-header">
+      <icon type="success_no_circle" size="20"></icon>
+      <text class="section-title">复选框 Checkbox</text>
+    </view>
+    <view class="checkbox-group">
+      <view class="checkbox-item" wx:for="{{checkboxList}}" wx:key="id" bindtap="onCheckboxTap" data-id="{{item.id}}">
+        <checkbox checked="{{item.checked}}" color="#07C160" disabled="{{item.disabled}}"></checkbox>
+        <text class="checkbox-label {{item.disabled ? 'disabled' : ''}}">{{item.label}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 单选框组件 -->
+  <view class="section">
+    <view class="section-header">
+      <icon type="success" size="20"></icon>
+      <text class="section-title">单选框 Radio</text>
+    </view>
+    <view class="radio-group">
+      <view class="radio-item" wx:for="{{radioList}}" wx:key="id" bindtap="onRadioTap" data-id="{{item.id}}">
+        <radio checked="{{item.checked}}" color="#07C160" disabled="{{item.disabled}}"></radio>
+        <text class="radio-label {{item.disabled ? 'disabled' : ''}}">{{item.label}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 滑块组件 -->
+  <view class="section">
+    <view class="section-header">
+      <icon type="waiting" size="20"></icon>
+      <text class="section-title">滑块 Slider</text>
+    </view>
+    <view class="slider-group">
+      <view class="slider-item" wx:for="{{sliderList}}" wx:key="id">
+        <text class="slider-label">{{item.label}}</text>
+        <slider value="{{item.value}}" 
+                activeColor="{{item.color}}" 
+                show-value="{{item.showValue}}"
+                block-size="{{item.blockSize}}"
+                block-color="{{item.blockColor}}"></slider>
+      </view>
+    </view>
+  </view>
+
+  <!-- 底部间距 -->
+  <view class="bottom-space"></view>
+</view>

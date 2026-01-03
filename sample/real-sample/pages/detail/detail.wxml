@@ -1,0 +1,112 @@
+<view class="page">
+  <!-- 商品图片 -->
+  <view class="product-images">
+    <view class="image-placeholder" style="background-color: {{product.bgColor || '#FF6B35'}};">
+      <icon type="{{product.icon || 'success'}}" size="80" color="#fff"></icon>
+    </view>
+    <view class="image-indicator">
+      <text class="current">1</text>
+      <text class="separator">/</text>
+      <text class="total">1</text>
+    </view>
+  </view>
+
+  <!-- 商品信息 -->
+  <view class="product-info">
+    <view class="price-row">
+      <text class="price">¥{{product.price}}</text>
+      <text class="original-price" wx:if="{{product.originalPrice}}">¥{{product.originalPrice}}</text>
+      <view class="share-btn">
+        <icon type="success_no_circle" size="16" color="#FF6B35"></icon>
+        <text>分享</text>
+      </view>
+    </view>
+    <text class="name">{{product.name}}</text>
+    <text class="desc">{{product.desc || '精选好物，品质保证'}}</text>
+    <view class="tags">
+      <text class="tag" wx:if="{{product.tag}}">{{product.tag}}</text>
+      <text class="tag">正品保证</text>
+      <text class="tag">七天退换</text>
+      <text class="tag">极速发货</text>
+    </view>
+  </view>
+
+  <!-- 商品参数 -->
+  <view class="product-spec">
+    <view class="spec-row">
+      <text class="spec-label">品牌</text>
+      <text class="spec-value">精选品牌</text>
+    </view>
+    <view class="spec-row">
+      <text class="spec-label">规格</text>
+      <text class="spec-value">标准装</text>
+    </view>
+    <view class="spec-row">
+      <text class="spec-label">库存</text>
+      <text class="spec-value">{{product.stock || 999}}件</text>
+    </view>
+  </view>
+
+  <!-- 用户评价 -->
+  <view class="review-section">
+    <view class="review-header">
+      <text class="review-title">用户评价 (128)</text>
+      <text class="review-more">查看全部 ></text>
+    </view>
+    <view class="review-list">
+      <view class="review-item">
+        <view class="review-user">
+          <text class="user-name">用户***8</text>
+          <text class="review-date">2024-01-15</text>
+        </view>
+        <text class="review-content">商品质量很好，物流也很快，推荐购买！</text>
+        <view class="review-images">
+          <view class="review-img" style="background-color: #F0F0F0;"></view>
+        </view>
+      </view>
+      <view class="review-item">
+        <view class="review-user">
+          <text class="user-name">买家***2</text>
+          <text class="review-date">2024-01-10</text>
+        </view>
+        <text class="review-content">性价比很高，值得入手</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 商品详情 -->
+  <view class="detail-section">
+    <view class="detail-header">
+      <text class="detail-title">商品详情</text>
+    </view>
+    <view class="detail-content">
+      <view class="detail-text">
+        <text>本商品为精选品质好物，经过严格的质量检验，保证正品。商品采用优质材料制作，做工精良，设计时尚，是您品质生活的理想选择。</text>
+      </view>
+      <view class="detail-placeholder" style="height: 400rpx; background-color: #F5F5F5; display: flex; align-items: center; justify-content: center;">
+        <text style="color: #999;">商品详情图</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 底部操作栏 -->
+  <view class="bottom-bar">
+    <view class="bar-left">
+      <view class="bar-item" bindtap="onContact">
+        <icon type="info" size="20" color="#666"></icon>
+        <text class="item-text">客服</text>
+      </view>
+      <view class="bar-item" bindtap="onCart">
+        <icon type="warn" size="20" color="#666"></icon>
+        <text class="item-text">购物车</text>
+        <view class="cart-badge" wx:if="{{cartCount > 0}}">{{cartCount}}</view>
+      </view>
+    </view>
+    <view class="bar-right">
+      <button class="btn-add-cart" bindtap="onAddCart">加入购物车</button>
+      <button class="btn-buy" bindtap="onBuyNow">立即购买</button>
+    </view>
+  </view>
+
+  <view class="bottom-space"></view>
+</view>

@@ -1,0 +1,56 @@
+<view class="page">
+  <!-- 标题 -->
+  <view class="header">
+    <text class="header-title">🛒 购物车</text>
+  </view>
+
+  <!-- 空购物车 -->
+  <view class="empty" wx:if="{{cartItems.length == 0}}">
+    <icon type="info" size="64" color="#ccc"></icon>
+    <text class="empty-text">购物车是空的</text>
+    <button type="primary" bindtap="goShopping">去逛逛</button>
+  </view>
+
+  <!-- 购物车列表 -->
+  <view class="cart-list" wx:if="{{cartItems.length > 0}}">
+    <view class="cart-item" wx:for="{{cartItems}}" wx:key="id">
+      <checkbox checked="{{item.selected}}" bindtap="onToggleSelect" data-index="{{index}}" color="#FF6B35"></checkbox>
+      <view class="item-icon">
+        <icon type="success" size="32" color="#FF6B35"></icon>
+      </view>
+      <view class="item-info">
+        <text class="item-name">{{item.name}}</text>
+        <view class="item-row">
+          <text class="item-price">¥{{item.price}}</text>
+          <view class="qty-box">
+            <view class="qty-btn" bindtap="onDecrease" data-index="{{index}}">
+              <text>-</text>
+            </view>
+            <text class="qty-num">{{item.quantity}}</text>
+            <view class="qty-btn" bindtap="onIncrease" data-index="{{index}}">
+              <text>+</text>
+            </view>
+          </view>
+        </view>
+      </view>
+      <view class="delete-btn" bindtap="onDelete" data-index="{{index}}">
+        <icon type="cancel" size="20" color="#999"></icon>
+      </view>
+    </view>
+  </view>
+
+  <!-- 底部结算 -->
+  <view class="checkout" wx:if="{{cartItems.length > 0}}">
+    <view class="checkout-left">
+      <checkbox checked="{{allSelected}}" bindtap="onToggleAll" color="#FF6B35"></checkbox>
+      <text class="select-text">全选</text>
+    </view>
+    <view class="checkout-right">
+      <text class="total-text">合计: </text>
+      <text class="total-price">¥{{totalPrice}}</text>
+      <button class="checkout-btn" type="primary" bindtap="onCheckout">结算({{selectedCount}})</button>
+    </view>
+  </view>
+
+  <view class="bottom-space"></view>
+</view>

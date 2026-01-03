@@ -1,0 +1,117 @@
+<view class="page">
+  <!-- 搜索栏 -->
+  <view class="search-bar" bindtap="onSearchTap">
+    <view class="search-box">
+      <icon type="search" size="16" color="#999"></icon>
+      <text class="search-text">搜索商品</text>
+    </view>
+  </view>
+
+  <!-- 轮播 Banner -->
+  <swiper class="banner-swiper" indicator-dots="{{true}}" autoplay="{{true}}" interval="3000">
+    <swiper-item wx:for="{{banners}}" wx:key="id">
+      <view class="banner-item" style="background-color: {{item.color}}">
+        <text class="banner-tag">{{item.tag}}</text>
+        <text class="banner-title">{{item.title}}</text>
+        <text class="banner-desc">{{item.desc}}</text>
+      </view>
+    </swiper-item>
+  </swiper>
+
+  <!-- 分类导航 -->
+  <view class="category-nav">
+    <view class="category-item" wx:for="{{categories}}" wx:key="id" bindtap="onCategoryTap" data-id="{{item.id}}">
+      <view class="category-icon" style="background-color: {{item.color}};">
+        <icon type="{{item.icon}}" size="24" color="#fff"></icon>
+      </view>
+      <text class="category-name">{{item.name}}</text>
+    </view>
+  </view>
+
+  <!-- 限时特惠 -->
+  <view class="section">
+    <view class="section-header">
+      <view class="section-title">
+        <text class="title-icon">⚡</text>
+        <text class="title-text">限时特惠</text>
+      </view>
+      <text class="section-more" bindtap="onViewAll">查看全部 ></text>
+    </view>
+    <scroll-view class="product-scroll" scroll-x="{{true}}" show-scrollbar="{{false}}">
+      <view class="product-card scroll-card" wx:for="{{flashProducts}}" wx:key="id" bindtap="onProductTap" data-id="{{item.id}}">
+        <view class="product-badge" wx:if="{{item.badge}}">{{item.badge}}</view>
+        <view class="product-img-placeholder" style="background-color: {{item.bgColor}};">
+          <icon type="{{item.icon}}" size="32" color="#fff"></icon>
+        </view>
+        <text class="product-name">{{item.name}}</text>
+        <view class="product-info">
+          <text class="product-price">¥{{item.price}}</text>
+          <text class="product-original">¥{{item.originalPrice}}</text>
+        </view>
+        <view class="add-btn" catchtap="onAddCart" data-product="{{item}}">
+          <text>+</text>
+        </view>
+      </view>
+    </scroll-view>
+  </view>
+
+  <!-- 热销推荐 -->
+  <view class="section">
+    <view class="section-header">
+      <view class="section-title">
+        <text class="title-icon">🔥</text>
+        <text class="title-text">热销推荐</text>
+      </view>
+    </view>
+    <view class="product-grid">
+      <view class="product-card" wx:for="{{hotProducts}}" wx:key="id" bindtap="onProductTap" data-id="{{item.id}}">
+        <view class="product-badge" wx:if="{{item.badge}}" style="background-color: #FF6B35;">{{item.badge}}</view>
+        <view class="product-img-placeholder" style="background-color: {{item.bgColor}};">
+          <icon type="{{item.icon}}" size="36" color="#fff"></icon>
+        </view>
+        <text class="product-name">{{item.name}}</text>
+        <text class="product-desc">{{item.desc}}</text>
+        <view class="product-info">
+          <text class="product-price">¥{{item.price}}</text>
+          <text class="product-sold">已售{{item.sold}}</text>
+        </view>
+        <view class="add-btn" catchtap="onAddCart" data-product="{{item}}">
+          <text>+</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 新品上架 -->
+  <view class="section">
+    <view class="section-header">
+      <view class="section-title">
+        <text class="title-icon">✨</text>
+        <text class="title-text">新品上架</text>
+      </view>
+    </view>
+    <view class="product-list">
+      <view class="list-item" wx:for="{{newProducts}}" wx:key="id" bindtap="onProductTap" data-id="{{item.id}}">
+        <view class="list-img-placeholder" style="background-color: {{item.bgColor}};">
+          <icon type="{{item.icon}}" size="28" color="#fff"></icon>
+        </view>
+        <view class="list-info">
+          <text class="list-name">{{item.name}}</text>
+          <text class="list-desc">{{item.desc}}</text>
+          <view class="list-tags">
+            <text class="tag" wx:if="{{item.tag}}">{{item.tag}}</text>
+          </view>
+          <view class="list-bottom">
+            <text class="list-price">¥{{item.price}}</text>
+            <text class="list-original">¥{{item.originalPrice}}</text>
+          </view>
+        </view>
+        <view class="list-add" catchtap="onAddCart" data-product="{{item}}">
+          <text>加入购物车</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="bottom-space"></view>
+</view>

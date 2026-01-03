@@ -15,6 +15,10 @@ mod input;
 mod image;
 mod video;
 mod canvas;
+mod swiper;
+mod rich_text;
+mod picker;
+mod checkbox_group;
 
 pub use base::*;
 pub use view::ViewComponent;
@@ -31,6 +35,10 @@ pub use image::ImageComponent;
 pub use video::VideoComponent;
 pub use video::has_playing_video;
 pub use canvas::{CanvasComponent, Canvas2DContext, CanvasContextManager, LinearGradient, RadialGradient, execute_canvas_draw};
+pub use swiper::{SwiperComponent, SwiperItemComponent, SWIPER_MANAGER};
+pub use rich_text::RichTextComponent;
+pub use picker::{PickerComponent, PickerViewComponent, PickerViewColumnComponent, PickerMode, PICKER_MANAGER};
+pub use checkbox_group::{CheckboxGroupComponent, RadioGroupComponent};
 
 use crate::parser::wxml::WxmlNode;
 use crate::parser::wxss::StyleSheet;
@@ -72,12 +80,20 @@ impl ComponentRegistry {
             "progress" => ProgressComponent::build(node, &mut ctx),
             "switch" => SwitchComponent::build(node, &mut ctx),
             "checkbox" => CheckboxComponent::build(node, &mut ctx),
+            "checkbox-group" => CheckboxGroupComponent::build(node, &mut ctx),
             "radio" => RadioComponent::build(node, &mut ctx),
+            "radio-group" => RadioGroupComponent::build(node, &mut ctx),
             "slider" => SliderComponent::build(node, &mut ctx),
             "input" | "textarea" => InputComponent::build(node, &mut ctx),
             "image" => ImageComponent::build(node, &mut ctx),
             "video" => VideoComponent::build(node, &mut ctx),
             "canvas" => CanvasComponent::build(node, &mut ctx),
+            "swiper" => SwiperComponent::build(node, &mut ctx),
+            "swiper-item" => SwiperItemComponent::build(node, &mut ctx),
+            "rich-text" => RichTextComponent::build(node, &mut ctx),
+            "picker" => PickerComponent::build(node, &mut ctx),
+            "picker-view" => PickerViewComponent::build(node, &mut ctx),
+            "picker-view-column" => PickerViewColumnComponent::build(node, &mut ctx),
             // 默认作为 view 处理
             _ => ViewComponent::build(node, &mut ctx),
         }

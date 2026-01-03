@@ -1,0 +1,100 @@
+.container {
+  padding: 20rpx;
+  background-color: #f5f5f5;
+  min-height: 100vh;
+}
+
+.header {
+  padding: 30rpx 0;
+  text-align: center;
+}
+
+.title {
+  font-size: 36rpx;
+  font-weight: bold;
+  color: #333;
+}
+
+.section {
+  background-color: #fff;
+  border-radius: 16rpx;
+  padding: 24rpx;
+  margin-bottom: 24rpx;
+}
+
+.section-title {
+  font-size: 28rpx;
+  font-weight: bold;
+  color: #333;
+  margin-bottom: 20rpx;
+  display: block;
+}
+
+/* Swiper */
+.swiper {
+  width: 100%;
+  height: 300rpx;
+  border-radius: 12rpx;
+}
+
+.swiper-item {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.swiper-text {
+  font-size: 32rpx;
+  color: #fff;
+  font-weight: bold;
+}
+
+/* Picker */
+.picker-item {
+  padding: 20rpx;
+  background-color: #f8f8f8;
+  border-radius: 8rpx;
+}
+
+.picker-item text {
+  font-size: 28rpx;
+  color: #333;
+}
+
+/* Rich-text */
+.rich-text-box {
+  padding: 20rpx;
+  background-color: #f8f8f8;
+  border-radius: 8rpx;
+  min-height: 80rpx;
+}
+
+/* Checkbox & Radio */
+.checkbox-item,
+.radio-item {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  padding: 16rpx 0;
+}
+
+.checkbox-item text,
+.radio-item text {
+  font-size: 28rpx;
+  color: #333;
+  margin-left: 16rpx;
+}
+
+/* Back button */
+.back-btn {
+  margin-top: 40rpx;
+  padding: 24rpx;
+  background-color: #07c160;
+  border-radius: 12rpx;
+  text-align: center;
+}
+
+.back-text {
+  font-size: 28rpx;
+  color: #fff;
+}

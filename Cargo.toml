@@ -47,3 +47,7 @@ path = "src/bin/main.rs"
 [[bin]]
 name = "mini-app-window"
 path = "src/bin/window.rs"
+
+[[bin]]
+name = "mini-launcher"
+path = "src/bin/launcher.rs"

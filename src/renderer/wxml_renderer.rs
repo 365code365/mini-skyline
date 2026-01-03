@@ -15,7 +15,9 @@ use super::components::{
     ViewComponent, TextComponent, ButtonComponent, IconComponent,
     ProgressComponent, SwitchComponent, CheckboxComponent, RadioComponent,
     SliderComponent, InputComponent, ImageComponent, VideoComponent,
-    CanvasComponent,
+    CanvasComponent, SwiperComponent, SwiperItemComponent, RichTextComponent,
+    PickerComponent, PickerViewComponent, PickerViewColumnComponent,
+    CheckboxGroupComponent, RadioGroupComponent,
     build_base_style,
 };
 
@@ -495,12 +497,20 @@ impl WxmlRenderer {
             "progress" => ProgressComponent::build(node, &mut ctx),
             "switch" => SwitchComponent::build(node, &mut ctx),
             "checkbox" => CheckboxComponent::build(node, &mut ctx),
+            "checkbox-group" => CheckboxGroupComponent::build(node, &mut ctx),
             "radio" => RadioComponent::build(node, &mut ctx),
+            "radio-group" => RadioGroupComponent::build(node, &mut ctx),
             "slider" => SliderComponent::build(node, &mut ctx),
             "input" | "textarea" => InputComponent::build(node, &mut ctx),
             "image" => ImageComponent::build(node, &mut ctx),
             "video" => VideoComponent::build(node, &mut ctx),
             "canvas" => CanvasComponent::build(node, &mut ctx),
+            "swiper" => SwiperComponent::build(node, &mut ctx),
+            "swiper-item" => SwiperItemComponent::build(node, &mut ctx),
+            "rich-text" => RichTextComponent::build(node, &mut ctx),
+            "picker" => PickerComponent::build(node, &mut ctx),
+            "picker-view" => PickerViewComponent::build(node, &mut ctx),
+            "picker-view-column" => PickerViewColumnComponent::build(node, &mut ctx),
             _ => ViewComponent::build(node, &mut ctx),
         };
         
@@ -548,7 +558,8 @@ impl WxmlRenderer {
     fn is_leaf_component(tag: &str) -> bool {
         matches!(tag, 
             "text" | "button" | "icon" | "progress" | "switch" | 
-            "checkbox" | "radio" | "slider" | "input" | "textarea" | "image" | "video" | "canvas"
+            "checkbox" | "radio" | "slider" | "input" | "textarea" | "image" | "video" | "canvas" |
+            "rich-text" | "picker" | "picker-view-column"
         )
     }
     
@@ -1180,12 +1191,18 @@ impl WxmlRenderer {
             "progress" => ProgressComponent::draw(node, canvas, self.text_renderer.as_ref(), x, y, w, h, sf),
             "switch" => SwitchComponent::draw(node, canvas, x, y, w, h, sf),
             "checkbox" => CheckboxComponent::draw(node, canvas, x, y, w, h, sf),
+            "checkbox-group" => CheckboxGroupComponent::draw(node, canvas, x, y, w, h, sf),
             "radio" => RadioComponent::draw(node, canvas, x, y, w, h, sf),
+            "radio-group" => RadioGroupComponent::draw(node, canvas, x, y, w, h, sf),
             "slider" => SliderComponent::draw(node, canvas, self.text_renderer.as_ref(), x, y, w, h, sf),
             "input" | "textarea" => InputComponent::draw(node, canvas, self.text_renderer.as_ref(), x, y, w, h, sf),
             "image" => ImageComponent::draw(node, canvas, self.text_renderer.as_ref(), x, y, w, h, sf),
             "video" => VideoComponent::draw(node, canvas, self.text_renderer.as_ref(), x, y, w, h, sf),
             "canvas" => CanvasComponent::draw(node, canvas, x, y, w, h, sf),
+            "swiper" => SwiperComponent::draw(node, canvas, x, y, w, h, sf),
+            "rich-text" => RichTextComponent::draw(node, canvas, self.text_renderer.as_ref(), x, y, w, h, sf),
+            "picker" => PickerComponent::draw(node, canvas, self.text_renderer.as_ref(), x, y, w, h, sf),
+            "picker-view" => PickerViewComponent::draw(node, canvas, self.text_renderer.as_ref(), x, y, w, h, sf),
             _ => ViewComponent::draw(node, canvas, x, y, w, h, sf),
         }
     }

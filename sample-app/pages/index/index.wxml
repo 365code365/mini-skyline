@@ -36,6 +36,10 @@
         <icon type="circle" size="28" color="#722ed1"></icon>
         <text class="category-name">Canvas</text>
       </view>
+      <view class="category-item" bindtap="onComponentsTap">
+        <icon type="success" size="28" color="#13c2c2"></icon>
+        <text class="category-name">组件</text>
+      </view>
     </view>
   </view>
 

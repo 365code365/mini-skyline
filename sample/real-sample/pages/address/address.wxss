@@ -1,0 +1,157 @@
+.page {
+  background-color: #F5F5F5;
+}
+
+/* 地址列表 */
+.address-list {
+  padding: 20rpx;
+}
+
+.address-item {
+  background-color: #fff;
+  border-radius: 16rpx;
+  padding: 24rpx;
+  margin-bottom: 20rpx;
+}
+
+.address-info {
+  margin-bottom: 16rpx;
+}
+
+.address-header {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  margin-bottom: 12rpx;
+}
+
+.name {
+  font-size: 30rpx;
+  color: #333;
+  font-weight: bold;
+}
+
+.phone {
+  font-size: 26rpx;
+  color: #666;
+  margin-left: 20rpx;
+}
+
+.default-badge {
+  background-color: #FF6B35;
+  color: #fff;
+  font-size: 20rpx;
+  padding: 4rpx 12rpx;
+  border-radius: 4rpx;
+  margin-left: auto;
+}
+
+.address-text {
+  display: block;
+  font-size: 26rpx;
+  color: #666;
+  line-height: 1.5;
+}
+
+.address-actions {
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-end;
+  border-top: 1rpx solid #F0F0F0;
+  padding-top: 16rpx;
+  gap: 24rpx;
+}
+
+.action-item {
+  font-size: 26rpx;
+  color: #666;
+}
+
+.action-item.delete {
+  color: #FF6B35;
+}
+
+/* 空状态 */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 200rpx;
+}
+
+.empty-icon {
+  margin-bottom: 30rpx;
+}
+
+.empty-text {
+  font-size: 28rpx;
+  color: #999;
+}
+
+/* 添加按钮 */
+.add-btn-wrapper {
+  padding: 20rpx;
+}
+
+.add-btn {
+  width: 100%;
+  height: 88rpx;
+  line-height: 88rpx;
+  background-color: #FF6B35;
+  color: #fff;
+  font-size: 30rpx;
+  border-radius: 44rpx;
+  border: none;
+  padding: 0;
+}
+
+/* 底部结算栏 */
+.checkout-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 100rpx;
+  background-color: #fff;
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 20rpx;
+  box-shadow: 0 -2rpx 12rpx rgba(0, 0, 0, 0.05);
+  box-sizing: border-box;
+  z-index: 100;
+}
+
+.checkout-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.checkout-total {
+  font-size: 32rpx;
+  color: #FF6B35;
+  font-weight: bold;
+}
+
+.checkout-count {
+  font-size: 22rpx;
+  color: #999;
+  margin-top: 4rpx;
+}
+
+.checkout-btn {
+  width: 200rpx;
+  height: 70rpx;
+  line-height: 70rpx;
+  background-color: #FF6B35;
+  color: #fff;
+  font-size: 28rpx;
+  border-radius: 35rpx;
+  border: none;
+  padding: 0;
+}
+
+.bottom-space {
+  height: 20rpx;
+}
