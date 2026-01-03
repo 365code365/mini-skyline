@@ -6,8 +6,9 @@
 
 - 🎨 **2D 渲染引擎** - 纯 Rust 实现，支持抗锯齿、Alpha 混合
 - ⚡ **QuickJS 脚本引擎** - 完整的 JavaScript 运行时
-- 🧩 **丰富的组件** - 支持 14+ 微信小程序组件
+- 🧩 **丰富的组件** - 支持 15+ 微信小程序组件
 - 📐 **Flexbox 布局** - 基于 Taffy 的完整 Flexbox 支持
+- 🖼️ **Canvas 2D** - 完整的 Canvas 2D 绑图 API
 - 📄 **WXML/WXSS 解析** - 支持模板语法和 rpx 单位
 - 🎯 **完整 CSS 支持** - 组件支持标准 CSS 样式
 - 🔗 **C FFI 接口** - 可嵌入其他语言
@@ -77,6 +78,7 @@
 | 组件 | 说明 | CSS 支持 |
 |------|------|----------|
 | `video` | 视频 | ✅ 基础 |
+| `canvas` | 画布 | ✅ 完整 |
 
 ## 🎨 CSS 样式支持
 
@@ -198,9 +200,50 @@ wx.switchTab({ url: '/pages/index/index' })
 // 系统信息
 wx.getSystemInfoSync()
 
+// Canvas 绑图
+const ctx = wx.createCanvasContext('myCanvas')
+ctx.setFillStyle('#FF0000')
+ctx.fillRect(10, 10, 100, 50)
+ctx.draw()
+
 // 定时器
 setTimeout(() => {}, 1000)
 setInterval(() => {}, 1000)
+```
+
+### Canvas 2D API
+
+```javascript
+// 创建 Canvas 上下文
+const ctx = wx.createCanvasContext('canvasId')
+
+// 样式设置
+ctx.setFillStyle('#FF0000')      // 填充颜色
+ctx.setStrokeStyle('#00FF00')    // 描边颜色
+ctx.setLineWidth(2)              // 线宽
+ctx.setGlobalAlpha(0.5)          // 全局透明度
+
+// 矩形绑制
+ctx.fillRect(x, y, width, height)    // 填充矩形
+ctx.strokeRect(x, y, width, height)  // 描边矩形
+ctx.clearRect(x, y, width, height)   // 清除矩形区域
+
+// 路径绑制
+ctx.beginPath()                      // 开始路径
+ctx.moveTo(x, y)                     // 移动到点
+ctx.lineTo(x, y)                     // 画线到点
+ctx.arc(x, y, r, startAngle, endAngle, counterclockwise)  // 圆弧
+ctx.closePath()                      // 闭合路径
+ctx.fill()                           // 填充路径
+ctx.stroke()                         // 描边路径
+
+// 状态管理
+ctx.save()                           // 保存状态
+ctx.restore()                        // 恢复状态
+ctx.translate(x, y)                  // 平移
+
+// 提交绘制
+ctx.draw()                           // 绑制到 canvas
 ```
 
 ## 🚀 快速开始
@@ -269,7 +312,8 @@ mini-render/
 │   │       ├── slider.rs       # Slider 组件
 │   │       ├── progress.rs     # Progress 组件
 │   │       ├── icon.rs         # Icon 组件
-│   │       └── video.rs        # Video 组件
+│   │       ├── video.rs        # Video 组件
+│   │       └── canvas.rs       # Canvas 组件
 │   ├── layout/                 # 布局系统
 │   ├── ui/                     # UI 工具
 │   │   ├── scroll_controller.rs # 滚动控制
@@ -293,7 +337,8 @@ mini-render/
         ├── cart/               # 购物车
         ├── profile/            # 个人中心
         ├── list/               # 列表页
-        └── detail/             # 详情页
+        ├── detail/             # 详情页
+        └── canvas/             # Canvas 示例页
 ```
 
 ## 🔧 C/C++ 集成
