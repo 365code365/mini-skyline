@@ -1256,6 +1256,7 @@ dependencies = [
  "cbindgen",
  "fontdue",
  "image 0.24.9",
+ "once_cell",
  "openh264",
  "rodio",
  "rquickjs",

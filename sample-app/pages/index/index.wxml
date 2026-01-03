@@ -31,6 +31,12 @@
         <text class="category-name">食品</text>
       </view>
     </view>
+    <view class="category-row">
+      <view class="category-item" bindtap="onCanvasTap">
+        <icon type="circle" size="28" color="#722ed1"></icon>
+        <text class="category-name">Canvas</text>
+      </view>
+    </view>
   </view>
 
   <!-- 热销商品 -->

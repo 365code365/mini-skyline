@@ -52,6 +52,13 @@ pub fn load_all_pages() -> HashMap<String, PageInfo> {
         js: include_str!("../../../sample-app/pages/detail/detail.js").to_string(),
     });
     
+    pages.insert("pages/canvas/canvas".to_string(), PageInfo {
+        path: "pages/canvas/canvas".to_string(),
+        wxml: include_str!("../../../sample-app/pages/canvas/canvas.wxml").to_string(),
+        wxss: include_str!("../../../sample-app/pages/canvas/canvas.wxss").to_string(),
+        js: include_str!("../../../sample-app/pages/canvas/canvas.js").to_string(),
+    });
+    
     pages
 }
 

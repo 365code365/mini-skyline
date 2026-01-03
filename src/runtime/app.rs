@@ -203,6 +203,9 @@ impl MiniApp {
                 BridgeEvent::NavigateTo(url) => {
                     println!("[Navigate] {}", url);
                 }
+                BridgeEvent::CanvasDraw { canvas_id, commands } => {
+                    crate::renderer::components::execute_canvas_draw(&canvas_id, &commands);
+                }
                 _ => {}
             }
         }

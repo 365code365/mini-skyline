@@ -14,6 +14,7 @@ mod slider;
 mod input;
 mod image;
 mod video;
+mod canvas;
 
 pub use base::*;
 pub use view::ViewComponent;
@@ -29,6 +30,7 @@ pub use input::InputComponent;
 pub use image::ImageComponent;
 pub use video::VideoComponent;
 pub use video::has_playing_video;
+pub use canvas::{CanvasComponent, Canvas2DContext, CanvasContextManager, LinearGradient, RadialGradient, execute_canvas_draw};
 
 use crate::parser::wxml::WxmlNode;
 use crate::parser::wxss::StyleSheet;
@@ -75,6 +77,7 @@ impl ComponentRegistry {
             "input" | "textarea" => InputComponent::build(node, &mut ctx),
             "image" => ImageComponent::build(node, &mut ctx),
             "video" => VideoComponent::build(node, &mut ctx),
+            "canvas" => CanvasComponent::build(node, &mut ctx),
             // 默认作为 view 处理
             _ => ViewComponent::build(node, &mut ctx),
         }

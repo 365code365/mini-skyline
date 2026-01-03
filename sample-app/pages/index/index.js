@@ -109,5 +109,10 @@ Page({
 
   onViewMore: function() {
     wx.switchTab({ url: '/pages/category/category' });
+  },
+
+  onCanvasTap: function() {
+    console.log('🎨 进入 Canvas 示例');
+    wx.navigateTo({ url: '/pages/canvas/canvas' });
   }
 });

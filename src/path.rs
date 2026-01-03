@@ -150,6 +150,83 @@ impl Path {
     pub fn add_circle(&mut self, cx: f32, cy: f32, r: f32) -> &mut Self {
         self.add_oval(cx, cy, r, r)
     }
+    
+    /// 添加圆弧（Canvas 2D API 兼容）
+    /// cx, cy: 圆心坐标
+    /// radius: 半径
+    /// start_angle, end_angle: 起始和结束角度（弧度）
+    /// counter_clockwise: 是否逆时针
+    pub fn arc(&mut self, cx: f32, cy: f32, radius: f32, start_angle: f32, end_angle: f32, counter_clockwise: bool) -> &mut Self {
+        let mut start = start_angle;
+        let mut end = end_angle;
+        
+        // 处理逆时针
+        if counter_clockwise {
+            std::mem::swap(&mut start, &mut end);
+        }
+        
+        // 规范化角度
+        while end < start {
+            end += std::f32::consts::TAU;
+        }
+        
+        let angle_diff = end - start;
+        
+        // 如果是完整的圆，使用 add_circle
+        if angle_diff >= std::f32::consts::TAU - 0.001 {
+            return self.add_circle(cx, cy, radius);
+        }
+        
+        // 使用贝塞尔曲线近似圆弧
+        // 每 90 度一段
+        let segments = ((angle_diff / (std::f32::consts::PI / 2.0)).ceil() as usize).max(1);
+        let segment_angle = angle_diff / segments as f32;
+        
+        // 起点
+        let start_x = cx + radius * start.cos();
+        let start_y = cy + radius * start.sin();
+        
+        if self.commands.is_empty() {
+            self.move_to(start_x, start_y);
+        } else {
+            self.line_to(start_x, start_y);
+        }
+        
+        // 贝塞尔曲线近似圆弧的系数
+        let k = 4.0 / 3.0 * (segment_angle / 4.0).tan();
+        
+        let mut current_angle = start;
+        for _ in 0..segments {
+            let next_angle = current_angle + segment_angle;
+            
+            let cos_curr = current_angle.cos();
+            let sin_curr = current_angle.sin();
+            let cos_next = next_angle.cos();
+            let sin_next = next_angle.sin();
+            
+            // 控制点
+            let cp1x = cx + radius * (cos_curr - k * sin_curr);
+            let cp1y = cy + radius * (sin_curr + k * cos_curr);
+            let cp2x = cx + radius * (cos_next + k * sin_next);
+            let cp2y = cy + radius * (sin_next - k * cos_next);
+            
+            // 终点
+            let end_x = cx + radius * cos_next;
+            let end_y = cy + radius * sin_next;
+            
+            self.cubic_to(cp1x, cp1y, cp2x, cp2y, end_x, end_y);
+            
+            current_angle = next_angle;
+        }
+        
+        self
+    }
+    
+    /// 添加圆弧（通过两点和半径）
+    pub fn arc_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, radius: f32) -> &mut Self {
+        // 简化实现：使用二次贝塞尔曲线近似
+        self.quad_to(x1, y1, x2, y2)
+    }
 
     pub fn commands(&self) -> &[PathCommand] {
         &self.commands
